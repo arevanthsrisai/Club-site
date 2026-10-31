@@ -18,6 +18,8 @@ steps:
       - 'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID'
       - '--build-arg'
       - 'NEXT_PUBLIC_FIREBASE_APP_ID=$_NEXT_PUBLIC_FIREBASE_APP_ID'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_FIRESTORE_DATABASE_ID=$_NEXT_PUBLIC_FIRESTORE_DATABASE_ID'
       - '.'
 
   # Push to Artifact Registry
@@ -48,6 +50,11 @@ steps:
 
 images:
   - 'gcr.io/$PROJECT_ID/relu-website'
+
+substitutions:
+  # Firestore database ID embedded into the browser bundle by `next build`.
+  # Production uses the (default) database; override per-branch if needed.
+  _NEXT_PUBLIC_FIRESTORE_DATABASE_ID: (default)
 
 options:
   logging: CLOUD_LOGGING_ONLY
