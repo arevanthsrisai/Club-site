@@ -13,18 +13,22 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Admin profiles live in 'admins/{uid}'. get() on a missing doc fails, which denies the request.
-    function adminRole() {
+    // Roles are dynamic: admins/{uid}.role must exist and is not "pending".
+    // get()/exists() on a missing doc fails, which denies the request.
+    function adminExists() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function getRole() {
       return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role;
     }
 
     function isAdmin() {
-      return isAuthenticated() && adminRole() in ['admin', 'super_admin', 'President', 'VP_AIML', 'VP_DSA', 'CTO',
-                                                  'AdminHead', 'PRHead', 'Treasurer', 'Mentor', 'Faculty', 'Activator'];
+      return isAuthenticated() && adminExists() && getRole() != "pending";
     }
 
     function isCTO() {
-      return isAuthenticated() && adminRole() == 'CTO';
+      return isAuthenticated() && adminExists() && getRole() == "CTO";
     }
 
     function changedKeys() {
@@ -47,8 +51,9 @@ service cloud.firestore {
     }
 
     // --- Admin profiles ---
-    // Only the CTO assigns roles. Admins may edit their own profile details and finish onboarding.
-    // The public team list on /about is served by the server, not read from here.
+    // Only the CTO assigns roles. Admins may edit their own profile details and
+    // finish onboarding. The public team list on /about is served by the server,
+    // not read from here.
     match /admins/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
@@ -61,6 +66,12 @@ service cloud.firestore {
             && (!('status' in changedKeys())
                 || (resource.data.status == 'onboarding' && request.resource.data.status == 'active')));
       allow delete: if isOwner(userId) || isCTO();
+    }
+
+    // --- Club roles (role catalog with permissions) ---
+    match /club_roles/{roleId} {
+      allow read: if true;
+      allow write: if isCTO();
     }
 
     // --- Public content: public read, admin write ---
@@ -79,7 +90,22 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /projects/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /resources/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /team_core/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /team_mentors/{document} {
       allow read: if true;
       allow write: if isAdmin();
     }
@@ -89,9 +115,20 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Legacy image-metadata collections.
+    match /event_images/{imageId} {
+      allow read: if isAdmin();
+      allow write: if isCTO();
+    }
+
+    match /resource_images/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isCTO();
+    }
+
     // --- Contact form: anyone can send, admins read ---
     match /messages/{document} {
-      allow create: if request.resource.data.keys().hasOnly(['name', 'email', 'subject', 'message', 'timestamp'])
+      allow create: if request.resource.data.keys().hasOnly(['name', 'email', 'subject', 'message', 'timestamp', 'solved'])
         && request.resource.data.keys().hasAll(['name', 'email', 'subject', 'message', 'timestamp'])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
@@ -104,7 +141,13 @@ service cloud.firestore {
         && request.resource.data.message.size() > 0
         && request.resource.data.message.size() <= 2000;
       allow read, delete: if isAdmin();
-      allow update: if false;
+      // The only admin writes are the workflow flags: marking a message solved
+      // (or reopening it), the timestamp of that action, and an optional
+      // follow-up reminder. Nothing else on a contact message can change.
+      allow update: if isAdmin() && changedKeys().hasOnly(['solved', 'solvedAt', 'reminderAt'])
+        && (!('solved' in changedKeys()) || request.resource.data.solved is bool)
+        && (!('solvedAt' in changedKeys()) || request.resource.data.solvedAt is null || request.resource.data.solvedAt is timestamp)
+        && (!('reminderAt' in changedKeys()) || request.resource.data.reminderAt is null || request.resource.data.reminderAt is timestamp);
     }
 
     match /audit_logs/{document} {
@@ -136,8 +179,8 @@ service cloud.firestore {
     }
 
     match /settings/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if isCTO();
     }
   }
 }

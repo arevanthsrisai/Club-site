@@ -22,6 +22,7 @@ before(async () => {
     await setDoc(doc(db, 'admins/act'), { uid: 'act', role: 'Activator', status: 'active' });
     await setDoc(doc(db, 'admins/onb'), { uid: 'onb', role: 'Activator', status: 'onboarding' });
     await setDoc(doc(db, 'admins/pend'), { uid: 'pend', role: 'pending' });
+    await setDoc(doc(db, 'admins/lead'), { uid: 'lead', role: 'Events_Lead', status: 'active' });
     await setDoc(doc(db, 'users/s1'), { uid: 's1', mobile: '9999999999' });
     await setDoc(doc(db, 'users/s2'), { uid: 's2', mobile: '8888888888' });
     await setDoc(doc(db, 'events/e1'), { title: 'E1', registrationStatus: 'open' });
@@ -33,7 +34,7 @@ before(async () => {
   });
 });
 
-after(async () => { await env.cleanup(); });
+after(async () => { if (env) await env.cleanup(); });
 
 test('admin escalation is blocked', async () => {
   await assertFails(updateDoc(doc(fs('act'), 'admins/act'), { role: 'CTO' }));
@@ -44,6 +45,22 @@ test('admin escalation is blocked', async () => {
   await assertSucceeds(updateDoc(doc(fs('cto'), 'admins/act'), { role: 'Mentor' }));
   await assertSucceeds(updateDoc(doc(fs('onb'), 'admins/onb'), { status: 'active', displayName: 'X', socials: {} }));
   await assertSucceeds(updateDoc(doc(fs('act'), 'admins/act'), { displayName: 'Y', photoURL: null }));
+});
+
+test('custom roles count as admins, pending does not', async () => {
+  await assertSucceeds(updateDoc(doc(fs('lead'), 'events/e1'), { title: 'E1' }));
+  await assertSucceeds(uploadBytes(ref(st('lead'), 'gallery/x.png'), png, { contentType: 'image/png' }));
+  await assertFails(updateDoc(doc(fs('pend'), 'events/e1'), { title: 'E1' }));
+  await assertFails(uploadBytes(ref(st('pend'), 'gallery/y.png'), png, { contentType: 'image/png' }));
+  await assertFails(updateDoc(doc(fs('s1'), 'events/e1'), { title: 'E1' }));
+});
+
+test('club roles: public read, CTO write', async () => {
+  await assertSucceeds(getDoc(doc(fs(null), 'club_roles/President')));
+  await assertSucceeds(setDoc(doc(fs('cto'), 'club_roles/Events_Lead'), { label: 'Events Lead', rank: 10, limit: 2 }));
+  await assertFails(setDoc(doc(fs('act'), 'club_roles/Events_Lead'), { label: 'Hacked', rank: 0, limit: null }));
+  await assertFails(setDoc(doc(fs('lead'), 'club_roles/X'), { label: 'X', rank: 0, limit: 1 }));
+  await assertFails(setDoc(doc(fs('s1'), 'club_roles/X'), { label: 'X', rank: 0, limit: 1 }));
 });
 
 test('admin self-signup only as pending', async () => {
@@ -100,6 +117,31 @@ test('audit logs and messages', async () => {
   await assertSucceeds(addDoc(collection(fs('act'), 'audit_logs'), { actorUid: 'act', action: 'x' }));
   await assertSucceeds(addDoc(collection(fs(null), 'messages'), { name: 'n', email: 'e@x', subject: 's', message: 'm', timestamp: Timestamp.now() }));
   await assertFails(addDoc(collection(fs(null), 'messages'), { name: 'n', email: 'e@x', subject: 's', message: 'm', timestamp: Timestamp.now(), extra: 1 }));
+});
+
+test('message workflow: solved flag and reminders are admin-only', async () => {
+  // Anyone can send a message; the admin can then toggle solved and set a reminder.
+  const msgRef = doc(fs(null), 'messages/m1');
+  await assertSucceeds(setDoc(msgRef, { name: 'n', email: 'e@x', subject: 's', message: 'm', timestamp: Timestamp.now() }));
+
+  // Admin toggles solved + solvedAt
+  await assertSucceeds(updateDoc(doc(fs('act'), 'messages/m1'), { solved: true, solvedAt: Timestamp.now() }));
+  // Admin clears solved
+  await assertSucceeds(updateDoc(doc(fs('act'), 'messages/m1'), { solved: false, solvedAt: null }));
+  // Admin sets a follow-up reminder
+  await assertSucceeds(updateDoc(doc(fs('act'), 'messages/m1'), { reminderAt: Timestamp.fromDate(new Date(Date.now() + 86400000)) }));
+  // Admin clears the reminder
+  await assertSucceeds(updateDoc(doc(fs('act'), 'messages/m1'), { reminderAt: null }));
+
+  // Only the solved/solvedAt/reminderAt keys may change
+  await assertFails(updateDoc(doc(fs('act'), 'messages/m1'), { subject: 'hacked' }));
+  await assertFails(updateDoc(doc(fs('act'), 'messages/m1'), { solved: 'yes' }));
+  await assertFails(updateDoc(doc(fs('act'), 'messages/m1'), { solvedAt: 'not-a-timestamp' }));
+  await assertFails(updateDoc(doc(fs('act'), 'messages/m1'), { reminderAt: 123 }));
+
+  // Non-admins cannot change the workflow state
+  await assertFails(updateDoc(doc(fs('s1'), 'messages/m1'), { solved: true }));
+  await assertFails(updateDoc(doc(fs('onb'), 'messages/m1'), { reminderAt: Timestamp.now() }));
 });
 
 test('storage writes are admin-only except own avatar', async () => {

@@ -5,6 +5,24 @@ import { deleteFileByUrl } from "./storage";
 
 // --- Gallery API ---
 
+/**
+ * Uploads one gallery item to object storage (Backblaze B2) through the secure
+ * server route. Kept as a thin alias for the shared implementation in
+ * @/lib/galleryUpload; new code should import from there directly.
+ *
+ * There is no Firebase Storage fallback: without object-storage configuration
+ * the server route answers 503 and this rejects with that actionable error.
+ */
+export async function uploadGalleryToR2(
+    file: File,
+    eventId: string,
+    onProgress?: (pct: number) => void,
+): Promise<{ url: string; key: string; storedSize?: number; lossless?: boolean }> {
+    const { uploadGalleryMedia } = await import("@/lib/galleryUpload");
+    const res = await uploadGalleryMedia(file, eventId, onProgress);
+    return { url: res.url, key: res.key, storedSize: res.storedSize };
+}
+
 export async function getEventGallery(eventId: string): Promise<GalleryImage[]> {
     try {
         const q = query(
@@ -36,7 +54,29 @@ export async function deleteFromGallery(id: string) {
 
         if (docSnap.exists()) {
             const data = docSnap.data() as GalleryImage;
-            await deleteFileByUrl(data.src);
+            if (data.storageKey) {
+                // Stored objects are removed by the server route that holds the
+                // storage credentials; it validates admin identity and the key.
+                // Videos also carry a poster thumbnail and a preserved original
+                // — both are cleaned up in the same call when present.
+                const { getAuthHeaders } = await import("@/lib/authHeaders");
+                const headers = await getAuthHeaders();
+                if (headers) {
+                    const res = await fetch("/api/gallery/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", ...headers },
+                        body: JSON.stringify({
+                            key: data.storageKey,
+                            ...(data.thumbnailKey ? { thumbnailKey: data.thumbnailKey } : {}),
+                            ...(data.originalKey ? { originalKey: data.originalKey } : {}),
+                        }),
+                    });
+                    if (!res.ok) throw new Error(`Stored file delete failed (${res.status})`);
+                }
+            } else {
+                // Legacy items live in Firebase Storage.
+                await deleteFileByUrl(data.src);
+            }
         }
 
         await deleteDoc(docRef);

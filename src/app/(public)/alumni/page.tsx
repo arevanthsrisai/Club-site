@@ -10,6 +10,17 @@ export const metadata: Metadata = {
 
 export const revalidate = 0;
 
+/** Stored URLs become links only when they are real http(s) URLs. */
+function safeHttpUrl(raw: string | undefined): string | null {
+    if (!raw) return null;
+    try {
+        const url = new URL(raw);
+        return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+    } catch {
+        return null;
+    }
+}
+
 export default async function AlumniPage() {
     let alumni: Alumni[] = [];
     try {
@@ -47,6 +58,8 @@ export default async function AlumniPage() {
                                         <img
                                             src={alumnus.photoURL}
                                             alt={alumnus.name}
+                                            loading="lazy"
+                                            decoding="async"
                                             className="w-20 h-20 rounded-full object-cover border-2 border-white/10 group-hover:border-blue-500/50 transition-colors shadow-xl"
                                         />
                                     ) : (
@@ -80,9 +93,9 @@ export default async function AlumniPage() {
                                         )}
                                     </div>
 
-                                    {alumnus.linkedinUrl && (
+                                    {safeHttpUrl(alumnus.linkedinUrl) && (
                                         <a
-                                            href={alumnus.linkedinUrl}
+                                            href={safeHttpUrl(alumnus.linkedinUrl)!}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="inline-flex items-center gap-1.5 mt-4 px-4 py-1.5 rounded-full bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 transition-all text-xs font-medium border border-blue-500/20"

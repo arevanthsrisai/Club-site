@@ -5,10 +5,9 @@ import { Linkedin, Instagram, MapPin, Mail } from "lucide-react";
 
 export default function Footer() {
     const pathname = usePathname();
-    const isHidden = pathname === "/" ||
-        pathname.startsWith("/auth/") ||
-        pathname.startsWith("/admin") ||
-        pathname.startsWith("/profile");
+    // Footer appears on every page except the home page (and the admin app,
+    // which has its own chrome and never renders this component anyway).
+    const isHidden = pathname === "/" || pathname.startsWith("/admin");
 
     if (isHidden) return null;
 
@@ -43,6 +42,10 @@ export default function Footer() {
                         <FooterLink href="/alumni" label="Alumni" />
                         <FooterLink href="/contact" label="Contact" />
                     </ul>
+                    <ul className="mt-6 pt-6 border-t border-white/5 space-y-4">
+                        <FooterLink href="/privacy" label="Privacy Policy" />
+                        <FooterLink href="/terms" label="Terms of Service" />
+                    </ul>
                 </div>
 
                 {/* Contact Info */}
@@ -73,9 +76,9 @@ export default function Footer() {
             {/* Bottom Bar */}
             <div className="max-w-7xl mx-auto px-6 pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-4 text-gray-500 text-sm">
                 <p>&copy; {new Date().getFullYear()} ReLU Club. All rights reserved.</p>
-                <div className="flex gap-6">
-                    <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
-                    <Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link>
+                <div className="flex items-center gap-6">
+                    <a href="https://www.linkedin.com/company/reluavv/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">LinkedIn</a>
+                    <a href="https://www.instagram.com/relu_avv/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Instagram</a>
                 </div>
             </div>
         </footer>

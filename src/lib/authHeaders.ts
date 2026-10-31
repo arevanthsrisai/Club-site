@@ -14,7 +14,7 @@
  *   const token = await getAuthToken();
  *   fetch('/api/endpoint', { headers: { Authorization: `Bearer ${token}` } });
  */
-async function getAuthToken(): Promise<string | null> {
+export async function getAuthToken(): Promise<string | null> {
     if (typeof window === 'undefined') return null;
 
     try {

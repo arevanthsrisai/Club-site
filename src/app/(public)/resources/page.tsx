@@ -1,4 +1,5 @@
 import ResourceCard from "@/components/ui/ResourceCard";
+import { ResourceCategory } from "@/types";
 import ResourceCategoryTabs from "@/components/public/ResourceCategoryTabs";
 import { Metadata } from "next";
 import { getResources } from "@/lib/api";
@@ -18,14 +19,21 @@ export default async function ResourcesPage({
     const allResources = await getResources();
     const { category } = await searchParams;
 
-    // Default to AIML if no category specified
-    const activeCategory = (category && typeof category === 'string') ? category : "AIML";
+    // Unknown or absent category param falls back to AIML.
+    const activeCategory: ResourceCategory =
+        category === "AIML" || category === "DSA" || category === "General" ? category : "AIML";
     const resources = allResources.filter(r => r.category === activeCategory);
 
-    const displayTitle = activeCategory === "AIML" ? "AI / ML Resources" : "DSA Resources";
-    const displaySubtitle = activeCategory === "AIML"
+    const displayTitle = activeCategory === 'AIML'
+        ? "AI / ML Resources"
+        : activeCategory === 'DSA'
+          ? "DSA Resources"
+          : "General Resources";
+    const displaySubtitle = activeCategory === 'AIML'
         ? "Explore curated materials for Artificial Intelligence & Machine Learning."
-        : "Master Data Structures & Algorithms with hand-picked resources.";
+        : activeCategory === 'DSA'
+          ? "Master Data Structures & Algorithms with hand-picked resources."
+          : "Club-wide picks: tutorials, tooling guides and everything in between.";
 
     return (
         <div className="min-h-screen pt-32 md:pt-36 pb-20 relative z-[1]">
@@ -53,7 +61,7 @@ export default async function ResourcesPage({
                     </div>
                 ) : (
                     <div className="text-center py-20 bg-white/5 rounded-2xl border border-white/10">
-                        <p className="text-xl text-gray-400">No {activeCategory === "AIML" ? "AI/ML" : "DSA"} resources available yet.</p>
+                        <p className="text-xl text-gray-400">No {displayTitle.toLowerCase()} available yet.</p>
                         <p className="text-sm text-gray-500 mt-2">Check back later for updates!</p>
                     </div>
                 )}

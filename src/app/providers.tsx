@@ -1,6 +1,7 @@
 "use client";
 
 import { ToastProvider } from "@/components/ui/Toast";
+import NavigationProgress from "@/components/ui/NavigationProgress";
 
 /**
  * Client-side providers wrapper.
@@ -12,6 +13,7 @@ import { ToastProvider } from "@/components/ui/Toast";
 export default function Providers({ children }: { children: React.ReactNode }) {
     return (
         <ToastProvider>
+            <NavigationProgress />
             {children}
         </ToastProvider>
     );

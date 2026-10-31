@@ -4,15 +4,26 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { signOut, useAuth } from "@/lib/auth";
+import { subscribeToMessages } from "@/lib/api";
+import { unsolvedCount } from "@/lib/messageWorkflow";
+import { useEffect, useState } from "react";
 import {
     LogOut, LayoutDashboard, Calendar, ClipboardList, Users,
     BookOpen, Image as ImageIcon, Shield, Home, Skull, Terminal, MessageSquare,
-    GraduationCap, Settings
+    GraduationCap, Settings, Activity
 } from "lucide-react";
 
 export default function Sidebar() {
     const router = useRouter();
     const { user, profile } = useAuth();
+    const [unresolvedCount, setUnresolvedCount] = useState(0);
+
+    useEffect(() => {
+        const unsubscribe = subscribeToMessages((msgs) => {
+            setUnresolvedCount(unsolvedCount(msgs));
+        });
+        return () => unsubscribe();
+    }, []);
 
     const handleLogout = async () => {
         await signOut();
@@ -31,8 +42,9 @@ export default function Sidebar() {
                 <div className="h-px bg-white/10 my-2" />
                 <NavLink href="/admin/resources" icon={<BookOpen size={20} />} label="Resources" />
                 <NavLink href="/admin/gallery" icon={<ImageIcon size={20} />} label="Gallery" />
-                <NavLink href="/admin/messages" icon={<MessageSquare size={20} />} label="Messages" />
+                <NavLink href="/admin/messages" icon={<MessageSquare size={20} />} label="Messages" badge={unresolvedCount > 0 ? unresolvedCount : undefined} />
                 <NavLink href="/admin/alumni" icon={<GraduationCap size={20} />} label="Alumni" />
+                <NavLink href="/admin/logs" icon={<Activity size={20} />} label="Activity Log" />
 
                 {/* Manage Admins - CTO Only */}
                 {profile?.role === "CTO" && (
@@ -87,17 +99,26 @@ export default function Sidebar() {
     );
 }
 
-function NavLink({ href, icon, label, className }: { href: string; icon: React.ReactNode; label: string; className?: string }) {
+function NavLink({ href, icon, label, className, badge }: { href: string; icon: React.ReactNode; label: string; className?: string; badge?: number }) {
     const pathname = usePathname();
-    const isActive = pathname === href;
+    // Stay highlighted on nested routes (e.g. Events while creating /admin/events/new or opening a detail page).
+    const isActive = pathname === href || pathname.startsWith(href + "/");
 
     return (
         <Link
             href={href}
             className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${className || (isActive ? "bg-blue-600 text-white" : "text-gray-300 hover:bg-white/5 hover:text-white")}`}
-        >
-            {icon}
-            <span>{label}</span>
-        </Link>
+            aria-current={isActive ? "page" : undefined}            >
+                {icon}
+                <span>{label}</span>
+                {badge ? (
+                    <span
+                        className="ml-auto text-[10px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                        aria-label={`${badge} unresolved messages`}
+                    >
+                        {badge > 99 ? "99+" : badge}
+                    </span>
+                ) : null}
+            </Link>
     );
 }

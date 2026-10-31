@@ -5,6 +5,11 @@ import { Resource } from "@/types";
 
 export default function ResourceCard({ resource }: { resource: Resource }) {
 
+    // Stored URLs come from the admin form; only http(s) links are escapable
+    // into an <a href>. Anything else (javascript:, data:, empty) renders as a
+    // non-clickable informational card instead of an exploitable link.
+    const href = /^https?:\/\//i.test(resource.url) ? resource.url : null;
+
     // Determine the icon and label based on type
     const Meta = {
         image: { icon: ImageIcon, label: "Image", color: "text-purple-400", bg: "bg-purple-500/10" },
@@ -17,11 +22,17 @@ export default function ResourceCard({ resource }: { resource: Resource }) {
         ? resource.url
         : resource.thumbnailUrl || "/images/event-placeholder.jpg"; // Fallback if no thumbnail
 
+    const cardClass = "group relative block bg-black/40 border border-white/10 rounded-2xl overflow-hidden hover:border-white/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl h-full flex flex-col";
+
     return (
         <Link
-            href={resource.url}
-            target="_blank"
-            className="group relative block bg-black/40 border border-white/10 rounded-2xl overflow-hidden hover:border-white/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl h-full flex flex-col"
+            href={href ?? "#"}
+            target={href ? "_blank" : undefined}
+            rel={href ? "noopener noreferrer" : undefined}
+            aria-disabled={!href}
+            tabIndex={!href ? -1 : undefined}
+            aria-label={!href ? `${resource.title} (unavailable)` : undefined}
+            className={`${cardClass} pointer-events-${href ? "auto" : "none"}`}
         >
             {/* Image/Thumbnail Area */}
             <div className="relative h-48 w-full overflow-hidden bg-black/50">
@@ -35,7 +46,7 @@ export default function ResourceCard({ resource }: { resource: Resource }) {
                         src={displayImage}
                         alt={resource.title}
                         fill
-                        className="object-cover transition-transform duration-500 group-hover:scale-110 opacity-80 group-hover:opacity-100"
+                        sizes="(max-width: 767px) calc(100vw - 48px), (max-width: 1023px) calc((100vw - 72px) / 2), calc((100vw - 96px) / 3)"
                     />
                 )}
 
@@ -65,7 +76,9 @@ export default function ResourceCard({ resource }: { resource: Resource }) {
 
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-auto">
                     <span className="text-gray-500 text-xs font-mono group-hover:text-gray-300 transition-colors">
-                        {resource.type === 'pdf' ? 'Click to View/Download' : 'Click to Open'}
+                        {href
+                            ? (resource.type === 'pdf' ? 'Click to View/Download' : 'Click to Open')
+                            : 'Link unavailable'}
                     </span>
                     <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all duration-300">
                         {resource.type === 'pdf' ? <Download size={14} /> : <ArrowRight size={14} />}

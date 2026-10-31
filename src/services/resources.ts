@@ -2,14 +2,30 @@ import { db } from "@/lib/firebase";
 import { storage } from "@/lib/firebase";
 import { collection, doc, getDocs, getDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { ref, deleteObject } from "firebase/storage";
-import { Resource } from "@/types";
+import { Resource, ResourceCategory } from "@/types";
 
 // --- Resources API ---
+
+export const RESOURCE_CATEGORIES: ResourceCategory[] = ["AIML", "DSA", "General"];
+
+/**
+ * Reading with a stable category contract: legacy documents (or any record
+ * saved by an older version) whose category is missing or outside the known
+ * set are surfaced as "General" so they always appear somewhere instead of
+ * silently vanishing from every filter. The stored value is never rewritten.
+ */
+function normalizeCategory(value: unknown): ResourceCategory {
+    return value === "AIML" || value === "DSA" ? value : "General";
+}
 
 export async function getResources(): Promise<Resource[]> {
     try {
         const querySnapshot = await getDocs(collection(db, "resources"));
-        return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Resource));
+        return querySnapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+            category: normalizeCategory((doc.data() as Resource).category),
+        } as Resource));
     } catch (error) {
         console.warn("Firebase fetch failed (Resources):", error);
         return [];

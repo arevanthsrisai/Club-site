@@ -1,0 +1,50 @@
+import { db } from "@/lib/firebase";
+import { collection, doc, getDocs, onSnapshot, query, setDoc, deleteDoc, where, writeBatch, getCountFromServer } from "firebase/firestore";
+import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, DEFAULT_ROLES, withBuiltIns } from "@/lib/roles";
+import { logActivity } from "./audit";
+
+const rolesRef = collection(db, "club_roles");
+
+export function subscribeToRoles(callback: (roles: ClubRole[]) => void) {
+    return onSnapshot(rolesRef, snap => {
+        callback(withBuiltIns(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClubRole))));
+    }, err => {
+        console.warn("Error loading roles:", err);
+        callback(withBuiltIns([]));
+    });
+}
+
+// Stores the default roles. Called for the CTO while the collection is still empty.
+export async function seedDefaultRoles() {
+    const existing = await getDocs(rolesRef);
+    if (!existing.empty) return;
+    const batch = writeBatch(db);
+    DEFAULT_ROLES.forEach(({ id, ...role }) => batch.set(doc(rolesRef, id), role));
+    await batch.commit();
+}
+
+export async function saveRole(role: ClubRole, actorUid?: string, actorName?: string) {
+    if (!role.id || !role.label.trim()) throw new Error("A role needs a name.");
+    if (role.id === DEFAULT_ROLE_ID && role.limit !== null) throw new Error("Activator must stay unlimited.");
+    const { id, ...data } = role;
+    // Build a clean payload: never write undefined fields (Firestore rejects
+    // them), and only include fields that are actually present so a partial
+    // update (e.g. reordering, which only changes `rank`) cannot wipe out
+    // unrelated data such as permissions, description, or seat limits.
+    const payload: Record<string, unknown> = {};
+    if (data.label !== undefined) payload.label = data.label.trim();
+    if (data.description !== undefined) payload.description = data.description;
+    if (data.rank !== undefined) payload.rank = data.rank;
+    if (data.limit !== undefined) payload.limit = data.limit;
+    if (data.permissions !== undefined) payload.permissions = data.permissions;
+    await setDoc(doc(rolesRef, id), payload, { merge: true });
+    if (actorUid) await logActivity(actorUid, actorName || "Unknown", "SAVE_ROLE", { role: id, ...payload });
+}
+
+export async function deleteRole(id: string, actorUid?: string, actorName?: string) {
+    if (id === CTO_ROLE.id || id === DEFAULT_ROLE_ID) throw new Error("This role cannot be deleted.");
+    const holders = await getCountFromServer(query(collection(db, "admins"), where("role", "==", id)));
+    if (holders.data().count > 0) throw new Error("Move everyone out of this role before deleting it.");
+    await deleteDoc(doc(rolesRef, id));
+    if (actorUid) await logActivity(actorUid, actorName || "Unknown", "DELETE_ROLE", { role: id });
+}

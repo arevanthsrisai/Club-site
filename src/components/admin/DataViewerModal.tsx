@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2, Star, ChevronDown, Search } from "lucide-react";
 import { getEvents, getEventRegistrations, getEventFeedbacks } from "@/lib/api";
 import { Event, EventRegistration, Feedback } from "@/types";
@@ -18,12 +18,24 @@ export default function DataViewerModal({ type, onClose }: DataViewerModalProps)
     const [loadingEvents, setLoadingEvents] = useState(true);
     const [loadingData, setLoadingData] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const closeRef = useRef<HTMLButtonElement>(null);
 
     // Data states
     const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
     const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
 
     const title = type === "registrations" ? "Registrations" : type === "attendance" ? "Attendance" : "Feedbacks";
+
+    // Same dialog semantics as AvatarSelector: Escape and backdrop close,
+    // focus lands on the close button so keyboard users aren't lost.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        document.addEventListener("keydown", onKeyDown);
+        closeRef.current?.focus();
+        return () => document.removeEventListener("keydown", onKeyDown);
+    }, [onClose]);
 
     useEffect(() => {
         (async () => {
@@ -125,7 +137,13 @@ export default function DataViewerModal({ type, onClose }: DataViewerModalProps)
     } : null;
 
     return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${title} data viewer`}
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden relative shadow-2xl flex flex-col">
                 {/* Header */}
                 <div className="p-6 border-b border-white/10 flex justify-between items-center shrink-0">
@@ -133,7 +151,12 @@ export default function DataViewerModal({ type, onClose }: DataViewerModalProps)
                         <h2 className="text-2xl font-bold text-white">{title}</h2>
                         {selectedEvent && <p className="text-gray-400 text-sm mt-1">{selectedEvent.title} — {selectedEvent.date}</p>}
                     </div>
-                    <button onClick={onClose} className="p-2 bg-white/5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+                    <button
+                        ref={closeRef}
+                        onClick={onClose}
+                        aria-label={`Close ${title.toLowerCase()} viewer`}
+                        className="p-2 bg-white/5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                    >
                         <X size={20} />
                     </button>
                 </div>

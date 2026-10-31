@@ -6,7 +6,7 @@ import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/aut
 import { auth } from "@/lib/firebase";
 import { getUserProfile } from "@/lib/api";
 import Link from "next/link";
-import { Mail, Lock, ArrowRight, AlertTriangle, KeyRound, CheckCircle, ShieldAlert, Timer } from "lucide-react";
+import { Mail, Lock, ArrowRight, AlertTriangle, KeyRound, CheckCircle, ShieldAlert, Timer, X } from "lucide-react";
 import { useLoginRateLimit } from "@/hooks/useLoginRateLimit";
 
 export default function LoginPage() {
@@ -105,11 +105,13 @@ export default function LoginPage() {
 
                 <form onSubmit={handleLogin} className="space-y-6">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Email</label>
+                        <label htmlFor="login-email" className="text-xs font-bold text-gray-500 uppercase tracking-wider">Email</label>
                         <div className="relative group">
                             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors" size={18} />
                             <input
+                                id="login-email"
                                 type="email"
+                                autoComplete="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all font-mono text-sm"
@@ -121,7 +123,7 @@ export default function LoginPage() {
 
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Password</label>
+                            <label htmlFor="login-password" className="text-xs font-bold text-gray-500 uppercase tracking-wider">Password</label>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -138,8 +140,9 @@ export default function LoginPage() {
                         <div className="relative group">
                             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors" size={18} />
                             <input
+                                id="login-password"
                                 type="password"
-                                value={password}
+                                autoComplete="current-password"
                                 onChange={(e) => setPassword(e.target.value)}
                                 className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all font-mono text-sm"
                                 placeholder="••••••••"
@@ -149,7 +152,7 @@ export default function LoginPage() {
                     </div>
 
                     {error && (
-                        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
+                        <div role="alert" className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
                             <AlertTriangle className="text-red-500 shrink-0" size={18} />
                             <p className="text-red-400 text-xs font-bold">{error}</p>
                         </div>
@@ -195,20 +198,28 @@ export default function LoginPage() {
 
             {/* Password Reset Modal */}
             {showResetModal && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="reset-title"
+                    onClick={(e) => { if (e.target === e.currentTarget) setShowResetModal(false); }}
+                    onKeyDown={(e) => { if (e.key === "Escape") setShowResetModal(false); }}
+                >
                     <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 relative">
                         <button
                             onClick={() => setShowResetModal(false)}
+                            aria-label="Close password reset"
                             className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
                         >
-                            ✕
+                            <X size={18} aria-hidden="true" />
                         </button>
 
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
                                 <KeyRound className="text-blue-400" size={20} />
                             </div>
-                            <h2 className="text-lg font-bold">Reset Password</h2>
+                            <h2 id="reset-title" className="text-lg font-bold">Reset Password</h2>
                         </div>
 
                         {resetStatus === "sent" ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2 } from "lucide-react";
 import { checkinForEvent } from "@/lib/api";
 
@@ -14,6 +14,17 @@ export default function CheckInModal({ eventId, onClose, onSuccess }: CheckInMod
     const [code, setCode] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    // Escape and backdrop close; focus the code input immediately.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && !loading) onClose();
+        };
+        document.addEventListener("keydown", onKeyDown);
+        inputRef.current?.focus();
+        return () => document.removeEventListener("keydown", onKeyDown);
+    }, [onClose, loading]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -33,18 +44,27 @@ export default function CheckInModal({ eventId, onClose, onSuccess }: CheckInMod
     };
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Self check-in"
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
+        >
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-sm p-6 relative">
-                <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
+                <button onClick={onClose} aria-label="Close check-in" className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
 
                 <h2 className="text-xl font-bold mb-4">Self Check-in</h2>
                 <p className="text-gray-400 text-sm mb-6">Enter the 4-digit code displayed by the organizer.</p>
 
                 <form onSubmit={handleSubmit}>
                     <input
+                        ref={inputRef}
                         type="text"
                         maxLength={4}
                         value={code}
+                        aria-label="4-digit check-in code"
+                        aria-invalid={!!error}
                         onChange={(e) => {
                             setCode(e.target.value);
                             setError("");

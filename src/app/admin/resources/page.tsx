@@ -2,9 +2,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getResources, createResource, deleteResource, Resource } from "@/lib/api";
-import { Trash2, Plus, ExternalLink, FileText, Image as ImageIcon, Link as LinkIcon } from "lucide-react";
+import { getResources, createResource, deleteResource, Resource, ResourceCategory } from "@/lib/api";
+import { Trash2, Plus, ExternalLink, FileText, Image as ImageIcon, Link as LinkIcon, BookOpen } from "lucide-react";
 import FileUpload from "@/components/ui/FileUpload";
+import PageHeader from "@/components/ui/PageHeader";
 import { useAuth } from "@/lib/auth";
 import { logActivity } from "@/lib/api";
 import Image from "next/image";
@@ -24,8 +25,8 @@ export default function AdminResourcesPage() {
         category: "AIML",
         type: "url",
         url: "",
-        thumbnailUrl: ""
-    });
+        thumbnailUrl: "",
+    } satisfies Omit<Resource, "id">);
 
     useEffect(() => {
         loadResources();
@@ -87,15 +88,19 @@ export default function AdminResourcesPage() {
 
     return (
         <div className="max-w-4xl mx-auto text-white">
-            <div className="flex items-center justify-between mb-8">
-                <h1 className="text-3xl font-bold">Manage Resources</h1>
-                <button
-                    onClick={() => setIsCreating(true)}
-                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-medium transition-colors"
-                >
-                    <Plus size={20} /> Add Resource
-                </button>
-            </div>
+            <PageHeader
+                title="Manage Resources"
+                subtitle="Learning material shared with club members."
+                icon={<BookOpen size={26} />}
+                actions={
+                    <button
+                        onClick={() => setIsCreating(true)}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-medium transition-colors"
+                    >
+                        <Plus size={20} /> Add Resource
+                    </button>
+                }
+            />
 
             {/* Create Form */}
             {isCreating && (
@@ -118,14 +123,17 @@ export default function AdminResourcesPage() {
                             <div>
                                 <label className="block text-sm text-gray-400 mb-1">Category</label>
                                 <select
+                                    id="resource-category"
                                     required
                                     value={formData.category}
-                                    onChange={e => setFormData({ ...formData, category: e.target.value as "AIML" | "DSA" })}
+                                    onChange={e => setFormData({ ...formData, category: e.target.value as ResourceCategory })}
                                     className="w-full bg-black/40 border border-white/10 rounded-lg p-3 focus:border-blue-500 outline-none"
                                 >
                                     <option value="AIML">AI / Machine Learning</option>
                                     <option value="DSA">Data Structures & Algo</option>
+                                    <option value="General">General (club-wide)</option>
                                 </select>
+                                <p className="text-xs text-gray-500 mt-1.5">Legacy resources without a category show as General.</p>
                             </div>
                         </div>
 
@@ -242,11 +250,11 @@ export default function AdminResourcesPage() {
                             {/* Icon or Thumbnail */}
                             <div className="relative w-16 h-16 rounded-lg bg-black/40 flex items-center justify-center shrink-0 overflow-hidden border border-white/10">
                                 {res.type === 'image' ? (
-                                    <Image src={res.url} alt={res.title} fill className="object-cover" />
+                                    <Image src={res.url} alt={res.title} fill sizes="64px" className="object-cover" />
                                 ) : res.type === 'pdf' ? (
                                     <FileText className="text-red-400" />
                                 ) : res.thumbnailUrl ? (
-                                    <Image src={res.thumbnailUrl} alt={res.title} fill className="object-cover" />
+                                    <Image src={res.thumbnailUrl} alt={res.title} fill sizes="64px" className="object-cover" />
                                 ) : (
                                     <LinkIcon className="text-blue-400" />
                                 )}

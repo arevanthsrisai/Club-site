@@ -5,6 +5,7 @@ import { Alumni } from "@/types";
 import { subscribeToAlumni, createAlumni, updateAlumni, deleteAlumni } from "@/lib/api";
 import { GraduationCap, Plus, Trash2, Edit3, X, Save, Linkedin, Briefcase, Building2 } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
+import PageHeader from "@/components/ui/PageHeader";
 
 const EMPTY_FORM = {
     name: "",
@@ -92,20 +93,19 @@ export default function AdminAlumniPage() {
     return (
         <div className="max-w-6xl mx-auto text-white">
             {/* Header */}
-            <div className="flex justify-between items-end mb-8 border-b border-white/10 pb-6">
-                <div>
-                    <h1 className="text-3xl font-bold flex items-center gap-3">
-                        <GraduationCap className="text-blue-500" /> Alumni Management
-                    </h1>
-                    <p className="text-gray-400 mt-1">{alumni.length} alumni profiles</p>
-                </div>
-                <button
-                    onClick={() => { resetForm(); setShowForm(true); }}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold transition-colors shadow-lg shadow-blue-500/20"
-                >
-                    <Plus size={18} /> Add Alumni
-                </button>
-            </div>
+            <PageHeader
+                title="Alumni Management"
+                subtitle={`${alumni.length} alumni profiles`}
+                icon={<GraduationCap size={26} />}
+                actions={
+                    <button
+                        onClick={() => { resetForm(); setShowForm(true); }}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold transition-colors shadow-lg shadow-blue-500/20"
+                    >
+                        <Plus size={18} /> Add Alumni
+                    </button>
+                }
+            />
 
             {/* Add/Edit Form */}
             {showForm && (
@@ -222,7 +222,7 @@ export default function AdminAlumniPage() {
                                 <div className="flex items-center gap-3">
                                     {alumnus.photoURL ? (
                                         // eslint-disable-next-line @next/next/no-img-element
-                                        <img src={alumnus.photoURL} alt={alumnus.name} className="w-12 h-12 rounded-full object-cover border border-white/10" />
+                                        <img src={alumnus.photoURL} alt={alumnus.name} loading="lazy" decoding="async" className="w-12 h-12 rounded-full object-cover border border-white/10" />
                                     ) : (
                                         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
                                             {alumnus.name.charAt(0)}

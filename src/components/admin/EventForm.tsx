@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createEvent, updateEvent, Event } from "@/lib/api";
 import ImageUpload from "@/components/ui/ImageUpload";
-import { Sparkles, Save, X, Calendar } from "lucide-react";
+import MarkdownEditor from "@/components/admin/MarkdownEditor";
+import { Sparkles, Save, X, Calendar, Clock } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
+import { storedDateToInput, inputDateToStored, storedTimeToInput, inputTimeToStored } from "@/lib/dateUtils";
 
 interface EventFormProps {
     initialData?: Event;
@@ -17,6 +19,15 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const toast = useToast();
+    const [dateError, setDateError] = useState("");
+    const [teamSizeError, setTeamSizeError] = useState("");
+    // Native date/time pickers work in input-native formats; the stored fields
+    // keep the site's existing display strings (see lib/dateUtils.ts).
+    const [dateInput, setDateInput] = useState<string>(() => storedDateToInput(initialData?.date || "") ?? "");
+    const [timeRange, setTimeRange] = useState<{ start: string | null; end: string | null }>(
+        () => storedTimeToInput(initialData?.time || "")
+    );
+    const [timeError, setTimeError] = useState("");
     const [formData, setFormData] = useState<Omit<Event, "id"> | Event>(
         {
             title: initialData?.title || "",
@@ -37,25 +48,54 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
         }
     );
 
-    // Smart Status Automation logic
-    const handleDateBlur = () => {
-        // Try to parse the date and suggest status
-        const eventDate = new Date(formData.date);
-        if (!isNaN(eventDate.getTime())) {
-            const now = new Date();
-            if (eventDate < now && formData.status === "upcoming") {
-                if (confirm("This date is in the past. Switch status to 'Past'?")) {
-                    setFormData(prev => ({ ...prev, status: "past" }));
-                }
-            } else if (eventDate > now && formData.status === "past") {
-                // Optional: Switch back to upcoming automagically
-                setFormData(prev => ({ ...prev, status: "upcoming" }));
+    // Validate the whole form and surface at most the first problem inline.
+    const validate = (): string => {
+        if (!formData.title.trim()) return "Give the event a title.";
+        if (!dateInput) return "Pick the event date.";
+        if ((formData.minTeamSize ?? 1) < 1) return "Minimum team size must be at least 1.";
+        if ((formData.maxTeamSize ?? 1) < (formData.minTeamSize ?? 1)) return "Maximum team size cannot be smaller than the minimum.";
+        return "";
+    };
+
+    const handleDateChange = (value: string) => {
+        setDateInput(value);
+        const stored = inputDateToStored(value);
+        setFormData(prev => ({ ...prev, date: stored ?? "" }));
+        setDateError("");
+        if (!stored) return;
+        const picked = new Date(value + "T00:00:00"); // local midnight — the chosen day, never UTC-shifted
+        const now = new Date();
+        if (picked < now && formData.status === "upcoming") {
+            // Suggest instead of silently switching; the admin keeps control.
+            if (confirm("This date is in the past. Switch status to 'Past'?")) {
+                setFormData(prev => ({ ...prev, status: "past" }));
             }
+        } else if (picked > now && formData.status === "past") {
+            setFormData(prev => ({ ...prev, status: "upcoming" }));
+        }
+    };
+
+    const handleTimeChange = (which: "start" | "end", value: string) => {
+        const next = { ...timeRange, [which]: value || null };
+        setTimeRange(next);
+        setFormData(prev => ({ ...prev, time: inputTimeToStored(next.start, next.end) }));
+        // Valid range check only when both bounds exist ("HH:MM" strings compare chronologically).
+        if (next.start && next.end && next.start >= next.end) {
+            setTimeError("End time must be after the start time.");
+        } else {
+            setTimeError("");
         }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        const problem = validate();
+        if (problem || timeError) {
+            setDateError(problem.includes("date") ? problem : "");
+            setTeamSizeError(problem.includes("team size") ? problem : "");
+            toast.warning(timeError || problem);
+            return;
+        }
         setLoading(true);
 
         try {
@@ -74,13 +114,13 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
     };
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-6 bg-white/5 p-8 rounded-xl border border-white/10">
+        <form onSubmit={handleSubmit} className="space-y-6 bg-white/5 p-6 md:p-8 rounded-xl border border-white/10">
 
             {/* Smart Feature Banner */}
             {!isEdit && (
                 <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg flex items-center gap-2 text-sm text-blue-300">
                     <Sparkles size={16} />
-                    <span>Pro Tip: Enter a past date, and I&apos;ll automatically verify the status for you!</span>
+                    <span>Pro tip: entering a past date offers to switch the status to Past automatically.</span>
                 </div>
             )}
 
@@ -93,8 +133,9 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
             </div>
 
             <div>
-                <label className="block text-sm font-bold text-gray-400 mb-2">Event Title</label>
+                <label htmlFor="event-title" className="block text-sm font-bold text-gray-400 mb-2">Event Title <span aria-hidden="true" className="text-blue-400">*</span></label>
                 <input
+                    id="event-title"
                     type="text"
                     required
                     className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -103,48 +144,79 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
                 />
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                    <label className="block text-sm font-bold text-gray-400 mb-2">Date</label>
+                    <label htmlFor="event-date" className="block text-sm font-bold text-gray-400 mb-2">Date <span aria-hidden="true" className="text-blue-400">*</span></label>
                     <div className="relative">
                         <input
-                            type="text"
-                            placeholder="e.g. March 5, 2025"
-                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 pl-10"
-                            value={formData.date}
-                            onChange={e => setFormData({ ...formData, date: e.target.value })}
-                            onBlur={handleDateBlur}
+                            id="event-date"
+                            type="date"
+                            required
+                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 pl-10 [color-scheme:dark]"
+                            value={dateInput}
+                            onChange={e => handleDateChange(e.target.value)}
+                            aria-invalid={!!dateError}
+                            aria-describedby={dateError ? "event-date-error" : undefined}
                         />
-                        <Calendar className="absolute left-3 top-3.5 text-gray-500" size={16} />
+                        <Calendar className="absolute left-3 top-3.5 text-gray-500" size={16} aria-hidden="true" />
                     </div>
+                    {dateError && (
+                        <p id="event-date-error" role="alert" className="text-red-400 text-xs mt-1.5">{dateError}</p>
+                    )}
                 </div>
                 <div>
-                    <label className="block text-sm font-bold text-gray-400 mb-2">Status</label>
+                    <label htmlFor="event-status" className="block text-sm font-bold text-gray-400 mb-2">Status</label>
                     <select
+                        id="event-status"
                         className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         value={formData.status}
-                        onChange={e => setFormData({ ...formData, status: e.target.value as "upcoming" | "past" })}
+                        onChange={e => setFormData({ ...formData, status: e.target.value as Event["status"] })}
                     >
                         <option value="upcoming">Upcoming</option>
+                        <option value="ongoing">Ongoing (shown as live)</option>
                         <option value="past">Past</option>
                     </select>
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                    <label className="block text-sm font-bold text-gray-400 mb-2">Time</label>
-                    <input
-                        type="text"
-                        placeholder="e.g. 10:00 AM - 1:00 PM"
-                        className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        value={formData.time}
-                        onChange={e => setFormData({ ...formData, time: e.target.value })}
-                    />
+                    <label htmlFor="event-time-start" className="block text-sm font-bold text-gray-400 mb-2 flex items-center gap-1.5"><Clock size={13} aria-hidden="true" /> Time</label>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label htmlFor="event-time-start" className="sr-only">Start time</label>
+                            <input
+                                id="event-time-start"
+                                type="time"
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 [color-scheme:dark]"
+                                value={timeRange.start ?? ""}
+                                onChange={e => handleTimeChange("start", e.target.value)}
+                                aria-invalid={!!timeError}
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Start</p>
+                        </div>
+                        <div>
+                            <label htmlFor="event-time-end" className="sr-only">End time</label>
+                            <input
+                                id="event-time-end"
+                                type="time"
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 [color-scheme:dark]"
+                                value={timeRange.end ?? ""}
+                                onChange={e => handleTimeChange("end", e.target.value)}
+                                aria-invalid={!!timeError}
+                                aria-describedby={timeError ? "event-time-error" : undefined}
+                            />
+                            <p className="text-xs text-gray-500 mt-1">End</p>
+                        </div>
+                    </div>
+                    {timeError && (
+                        <p id="event-time-error" role="alert" className="text-red-400 text-xs mt-1.5">{timeError}</p>
+                    )}
                 </div>
                 <div>
-                    <label className="block text-sm font-bold text-gray-400 mb-2">Venue</label>
+                    <label htmlFor="event-venue" className="block text-sm font-bold text-gray-400 mb-2">Venue</label>
                     <input
+                        id="event-venue"
                         type="text"
                         placeholder="e.g. Auditorium, Block A"
                         className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -154,33 +226,42 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                    <label className="block text-sm font-bold text-gray-400 mb-2">Min Team Size</label>
+                    <label htmlFor="event-min-team" className="block text-sm font-bold text-gray-400 mb-2">Min Team Size</label>
                     <input
+                        id="event-min-team"
                         type="number"
                         min={1}
                         className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         value={formData.minTeamSize || 1}
-                        onChange={e => setFormData({ ...formData, minTeamSize: parseInt(e.target.value) })}
+                        onChange={e => setFormData({ ...formData, minTeamSize: Number.parseInt(e.target.value) || 1 })}
                     />
                 </div>
                 <div>
-                    <label className="block text-sm font-bold text-gray-400 mb-2">Max Team Size</label>
+                    <label htmlFor="event-max-team" className="block text-sm font-bold text-gray-400 mb-2">Max Team Size</label>
                     <input
+                        id="event-max-team"
                         type="number"
                         min={1}
                         className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         value={formData.maxTeamSize || 1}
-                        onChange={e => setFormData({ ...formData, maxTeamSize: parseInt(e.target.value) })}
+                        onChange={e => setFormData({ ...formData, maxTeamSize: Number.parseInt(e.target.value) || 1 })}
+                        aria-invalid={!!teamSizeError}
+                        aria-describedby={teamSizeError ? "event-team-size-error" : undefined}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Set to 1 for individual events.</p>
+                    {teamSizeError ? (
+                        <p id="event-team-size-error" role="alert" className="text-red-400 text-xs mt-1.5">{teamSizeError}</p>
+                    ) : (
+                        <p className="text-xs text-gray-500 mt-1">Set to 1 for individual events.</p>
+                    )}
                 </div>
             </div>
 
             <div>
-                <label className="block text-sm font-bold text-gray-400 mb-2">Short Description</label>
+                <label htmlFor="event-short-desc" className="block text-sm font-bold text-gray-400 mb-2">Short Description <span className="text-gray-600 font-normal" aria-hidden="true">shown on event cards</span></label>
                 <input
+                    id="event-short-desc"
                     type="text"
                     className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     value={formData.description}
@@ -189,29 +270,29 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
             </div>
 
             <div>
-                <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-bold text-gray-400">Full Details</label>
-                    <p className="text-gray-400 text-sm">Upload a cover image for the event. (Max 5MB)</p>
-                </div>
-                <textarea
-                    rows={8}
-                    className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono text-sm"
+                {/* Markdown editor with Write/Preview tabs; renders publicly
+                    through the shared Markdown component so preview === public. */}
+                <MarkdownEditor
+                    id="event-full-details"
+                    label="Full Details (Markdown)"
                     value={formData.fullDescription}
-                    onChange={e => setFormData({ ...formData, fullDescription: e.target.value })}
+                    onChange={value => setFormData({ ...formData, fullDescription: value })}
+                    rows={8}
                     placeholder="# Event Agenda\n\n- Introduction\n- Keynote\n- Networking"
                 />
             </div>
 
             <div>
-                <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-bold text-gray-400">Key Points / Agenda (One per line)</label>
-                </div>
-                <textarea
-                    rows={5}
-                    className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono text-sm"
+                <MarkdownEditor
+                    id="event-key-points"
+                    label="Key Points / Agenda (One per line)"
                     value={formData.details ? formData.details.join('\n') : ''}
-                    onChange={e => setFormData({ ...formData, details: e.target.value.split('\n') })}
+                    onChange={value => setFormData({ ...formData, details: value.split('\n') })}
+                    rows={5}
                     placeholder="Time: 10:00 AM\nVenue: Auditorium\nSpeaker: Dr. Smith"
+                    helpHint="One highlight per line — Markdown (bold, links, code) works inside each line."
+                    helpExamples={['**Time:** 10:00 AM', 'Venue: **Auditorium**', 'Speaker: [Dr. Smith](https://example.com)']}
+                    previewAsList
                 />
             </div>
 

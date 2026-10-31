@@ -10,13 +10,27 @@ import {
     EmailAuthProvider
 } from "firebase/auth";
 import { useEffect, useState } from "react";
+import { normalizeEmail } from "./normalizeEmail";
+import { assertEmailNotInUse } from "@/services/emails";
 import { createAdminProfile, getAdminProfile, AdminProfile, checkTenure } from "./api";
+
+/**
+ * Every account-creation path normalizes the email before it reaches Firebase
+ * Auth or Firestore. Firebase Auth's email-already-in-use is case-insensitive,
+ * but our own lookups are not, so a single shared helper keeps writes and
+ * queries consistent and prevents `Admin@x.com` / `admin@x.com` duplicates.
+ */
+function normalizeIncomingEmail(email: string): string {
+    const normalized = normalizeEmail(email);
+    if (!normalized) throw new Error("Email is required.");
+    return normalized;
+}
 
 // --- Auth Actions ---
 
 export async function signIn(email: string, pass: string) {
     try {
-        return await signInWithEmailAndPassword(auth, email, pass);
+        return await signInWithEmailAndPassword(auth, normalizeIncomingEmail(email) ?? email, pass);
     } catch (error: any) {
         console.error("Login failed:", error.code, error.message);
         throw error;
@@ -24,10 +38,14 @@ export async function signIn(email: string, pass: string) {
 }
 
 export async function signUp(email: string, pass: string) {
+    const normalized = normalizeIncomingEmail(email);
+    // Race-safe guard: reject duplicates in our own collections before Auth
+    // state is mutated. Auth's own email-already-in-use is a backstop.
+    await assertEmailNotInUse(normalized);
     try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-        // Create user profile in Firestore
-        await createAdminProfile(userCredential.user.uid, email);
+        const userCredential = await createUserWithEmailAndPassword(auth, normalized, pass);
+        // Create user profile in Firestore using the normalized address
+        await createAdminProfile(userCredential.user.uid, normalized);
         return userCredential.user;
     } catch (error: any) {
         console.error("Signup failed:", error.code, error.message);

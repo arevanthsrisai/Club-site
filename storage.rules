@@ -3,12 +3,10 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Same role list as firestore.rules. Reads admins/{uid} from Firestore (cross-service rules).
+    // Same check as firestore.rules: any approved admin. Reads admins/{uid} from Firestore (cross-service rules).
     function isAdmin() {
       return request.auth != null
-        && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.role in
-           ['admin', 'super_admin', 'President', 'VP_AIML', 'VP_DSA', 'CTO',
-            'AdminHead', 'PRHead', 'Treasurer', 'Mentor', 'Faculty', 'Activator'];
+        && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.role != 'pending';
     }
 
     function isImage() {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Outfit, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { APP_METADATA } from "@/lib/constants";
@@ -38,16 +39,15 @@ export const metadata: Metadata = {
         description: "Refining Logic and Unleashing AI.",
         images: ["/images/hero-logo.png"],
     },
-    verification: {
-        // google: "google-site-verification=YOUR_CODE_HERE", // TODO: Replace with actual verification code
-    },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
+    // Render every page per request so the CSP nonce from proxy.ts can be applied.
+    await connection();
     return (
         <html lang="en">
             <head>

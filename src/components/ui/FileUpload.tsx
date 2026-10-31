@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { uploadImage } from "@/lib/api";
+import { uploadMedia } from "@/lib/mediaUpload";
 import { FileText, Image as ImageIcon, UploadCloud } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 
@@ -26,12 +26,12 @@ export default function FileUpload({ path, onUpload, currentUrl, accept, label, 
         setUploading(true);
         setProgress(0);
         try {
-            const url = await uploadImage(file, path, (p) => setProgress(p));
+            const { url } = await uploadMedia(file, path, (p) => setProgress(p));
             setPreview(url);
             onUpload(url);
         } catch (error) {
             console.error("Upload failed", error);
-            toast.error("Failed to upload file");
+            toast.error(error instanceof Error ? error.message : "Failed to upload file");
         } finally {
             setUploading(false);
         }

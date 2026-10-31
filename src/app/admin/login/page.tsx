@@ -51,8 +51,9 @@ export default function AdminLoginPage() {
 
                 <form onSubmit={handleLogin} className="space-y-6">
                     <div>
-                        <label className="block text-sm font-bold text-gray-400 mb-2">Email</label>
+                        <label htmlFor="admin-login-email" className="block text-sm font-bold text-gray-400 mb-2">Email</label>
                         <input
+                            id="admin-login-email"
                             type="email"
                             required
                             autoFocus
@@ -63,8 +64,9 @@ export default function AdminLoginPage() {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-bold text-gray-400 mb-2">Password</label>
+                        <label htmlFor="admin-login-password" className="block text-sm font-bold text-gray-400 mb-2">Password</label>
                         <input
+                            id="admin-login-password"
                             type="password"
                             required
                             className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -73,7 +75,7 @@ export default function AdminLoginPage() {
                         />
                     </div>
 
-                    {error && <p className="text-red-400 text-sm text-center bg-red-500/10 py-2 rounded">{error}</p>}
+                    {error && <p role="alert" className="text-red-400 text-sm text-center bg-red-500/10 py-2 rounded">{error}</p>}
 
                     {rateLimit.isLockedOut && (
                         <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">

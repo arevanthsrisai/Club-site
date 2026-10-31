@@ -1,8 +1,11 @@
-"use client";
-
+import type { Metadata } from "next";
 import AdminGuard from "@/components/admin/AdminGuard";
-import Sidebar from "@/components/admin/Sidebar";
-import MobileRestriction from "@/components/admin/MobileRestriction";
+import AdminShell from "@/components/admin/AdminShell";
+
+export const metadata: Metadata = {
+    title: { absolute: "ReLU Admin", template: "%s | ReLU Admin" },
+    robots: { index: false, follow: false },
+};
 
 export default function AdminLayout({
     children,
@@ -11,16 +14,7 @@ export default function AdminLayout({
 }) {
     return (
         <AdminGuard>
-            {/* Mobile Blocker: Visible only on small/medium screens */}
-            <MobileRestriction />
-
-            {/* Main Desktop Dashboard: Hidden on small screens to prevent layout thrashing behind the blocker */}
-            <div className="hidden md:flex min-h-screen bg-[#0a0a0a] text-white">
-                <Sidebar />
-                <main className="flex-1 p-8 overflow-y-auto h-screen">
-                    {children}
-                </main>
-            </div>
+            <AdminShell>{children}</AdminShell>
         </AdminGuard>
     );
 }

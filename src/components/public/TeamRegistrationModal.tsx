@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
     X, Plus, Search, Loader2, AlertCircle, Send, Check, Clock,
     UserPlus, Users, ArrowLeft, User, Trash2, LogOut
@@ -39,7 +39,19 @@ export default function TeamRegistrationModal({ event, userProfile, existingRegi
     const [teamCreated, setTeamCreated] = useState(!!existingRegistration);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const closeRef = useRef<HTMLButtonElement>(null);
     const toast = useToast();
+
+    // Dialog semantics: Escape (when not mutating) and backdrop close,
+    // initial focus on the close button so keyboard users start oriented.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && !loading) onClose();
+        };
+        document.addEventListener("keydown", onKeyDown);
+        closeRef.current?.focus();
+        return () => document.removeEventListener("keydown", onKeyDown);
+    }, [onClose, loading]);
 
     // Search/Invite State (for Create flow)
     const [searchTerm, setSearchTerm] = useState("");
@@ -263,7 +275,13 @@ export default function TeamRegistrationModal({ event, userProfile, existingRegi
 
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Team registration"
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
+        >
             <div className="bg-[#111] border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
 
                 {/* Header */}
@@ -285,7 +303,7 @@ export default function TeamRegistrationModal({ event, userProfile, existingRegi
                             </p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
+                    <button onClick={onClose} ref={closeRef} aria-label="Close team registration" className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
                         <X size={20} />
                     </button>
                 </div>

@@ -26,15 +26,22 @@ export default function NotificationBell() {
         return () => unsub();
     }, [user, profile]);
 
-    // Close dropdown on outside click
+    // Close dropdown on outside click or Escape
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
                 setOpen(false);
             }
         };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setOpen(false);
+        };
         document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            document.removeEventListener("keydown", handleKeyDown);
+        };
     }, []);
 
     const handleRespond = async (invitationId: string, response: 'accepted' | 'rejected') => {
@@ -58,6 +65,8 @@ export default function NotificationBell() {
             {/* Bell Button */}
             <button
                 onClick={() => setOpen(!open)}
+                aria-expanded={open}
+                aria-label={`Notifications${invitations.length ? ` (${invitations.length} pending)` : ""}`}
                 className="relative p-2 rounded-full hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
             >
                 <Bell size={20} />

@@ -10,6 +10,7 @@ export * from "@/services/invitations";
 export * from "@/services/messages";
 export * from "@/services/registrations";
 export * from "@/services/resources";
+export * from "@/services/roles";
 export * from "@/services/settings";
 export * from "@/services/storage";
 export * from "@/services/users";

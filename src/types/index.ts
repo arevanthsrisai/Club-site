@@ -20,11 +20,13 @@ export interface Event {
     maxTeamSize?: number; // Default 1
 }
 
+export type ResourceCategory = "AIML" | "DSA" | "General";
+
 export interface Resource {
     id: string;
     title: string;
     description: string;
-    category: "AIML" | "DSA";
+    category: ResourceCategory;
     type: "image" | "pdf" | "url";
     url: string; // The content URL (File or Link)
     thumbnailUrl?: string; // Required for 'url' type, optional for others
@@ -39,12 +41,19 @@ export interface GalleryImage {
     type?: 'image' | 'video'; // optional for backward compatibility, default 'image'
     category?: string;
     timestamp: any;
+    storageKey?: string; // object key in the S3-compatible store (gallery/<eventId>/...); absent for legacy Firebase Storage items
+    storedSize?: number; // bytes stored after lossless optimization
+    storedLosslessly?: boolean; // true when a lossless WebP re-encode shrank the original
+    thumbnailKey?: string; // poster image key for videos (gallery/<eventId>/...-thumb.jpg)
+    originalKey?: string; // preserved pre-processing original for videos (recovery / reprocessing)
+    processingStatus?: "done" | "partial" | "unprocessed"; // honest video-pipeline status; absent = "done"
+    processingError?: string;
 }
 
 export interface AdminProfile {
     uid: string;
     email: string;
-    role: "pending" | "President" | "VP_AIML" | "VP_DSA" | "CTO" | "AdminHead" | "PRHead" | "Treasurer" | "Mentor" | "Faculty" | "Activator" | "admin";
+    role: string; // "pending" until approved; otherwise a club_roles id or "CTO"
     status: "onboarding" | "active";
     createdAt: any;
     approvedAt?: any;
@@ -52,6 +61,8 @@ export interface AdminProfile {
     photoURL?: string | null;
     rollNo?: string;
     dob?: string;
+    /** Searchable display helper; never used for sign-in or authorization. */
+    nickname?: string;
     socials?: {
         linkedin?: string;
         instagram?: string;
@@ -166,6 +177,22 @@ export interface ContactMessage {
     email: string;
     subject: string;
     message: string;
+    timestamp: any;
+    /** Workflow flag set by admins from the Inbox; absent = not yet answered. */
+    solved?: boolean;
+    /** When the admin marked it solved; used to show "answered X ago". */
+    solvedAt?: any;
+    /** Optional admin-set follow-up reminder. The dashboard surfaces messages
+     *  whose reminder has lapsed so nothing falls through the cracks. */
+    reminderAt?: any;
+}
+
+export interface MessageReminder {
+    id: string;
+    subject: string;
+    name: string;
+    email: string;
+    reminderAt: any; // Firestore Timestamp
     timestamp: any;
 }
 

@@ -13,6 +13,7 @@ export default function ContactPage() {
     });
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [errorMessage, setErrorMessage] = useState("Failed to send message. Please try again later.");
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -25,6 +26,7 @@ export default function ContactPage() {
             const elapsed = Date.now() - parseInt(lastSubmission, 10);
             if (elapsed < 60000) {
                 const remaining = Math.ceil((60000 - elapsed) / 1000);
+                setErrorMessage(`Please wait ${remaining}s before sending another message.`);
                 setStatus('error');
                 setLoading(false);
                 return;
@@ -33,6 +35,7 @@ export default function ContactPage() {
 
         // Field length validation
         if (formData.name.length > 100 || formData.subject.length > 200 || formData.message.length > 2000) {
+            setErrorMessage("Your message exceeds the allowed length (name ≤ 100, subject ≤ 200, message ≤ 2000 characters).");
             setStatus('error');
             setLoading(false);
             return;
@@ -45,6 +48,7 @@ export default function ContactPage() {
             setFormData({ name: "", email: "", subject: "", message: "" });
         } catch (error) {
             console.error(error);
+            setErrorMessage("Failed to send message. Please try again later.");
             setStatus('error');
         } finally {
             setLoading(false);
@@ -135,10 +139,12 @@ export default function ContactPage() {
                         <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-bold text-gray-400 uppercase tracking-wider">Name</label>
+                                    <label htmlFor="contact-name" className="text-sm font-bold text-gray-400 uppercase tracking-wider">Name</label>
                                     <input
+                                        id="contact-name"
                                         type="text"
                                         required
+                                        maxLength={100}
                                         className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-600"
                                         placeholder="John Doe"
                                         value={formData.name}
@@ -146,8 +152,9 @@ export default function ContactPage() {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-bold text-gray-400 uppercase tracking-wider">Email</label>
+                                    <label htmlFor="contact-email" className="text-sm font-bold text-gray-400 uppercase tracking-wider">Email</label>
                                     <input
+                                        id="contact-email"
                                         type="email"
                                         required
                                         className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-600"
@@ -159,10 +166,12 @@ export default function ContactPage() {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-bold text-gray-400 uppercase tracking-wider">Subject</label>
+                                <label htmlFor="contact-subject" className="text-sm font-bold text-gray-400 uppercase tracking-wider">Subject</label>
                                 <input
+                                    id="contact-subject"
                                     type="text"
                                     required
+                                    maxLength={200}
                                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-600"
                                     placeholder="What's this about?"
                                     value={formData.subject}
@@ -171,10 +180,12 @@ export default function ContactPage() {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-bold text-gray-400 uppercase tracking-wider">Message</label>
+                                <label htmlFor="contact-message" className="text-sm font-bold text-gray-400 uppercase tracking-wider">Message</label>
                                 <textarea
+                                    id="contact-message"
                                     required
                                     rows={5}
+                                    maxLength={2000}
                                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-600 resize-none"
                                     placeholder="Tell us about it..."
                                     value={formData.message}
@@ -183,9 +194,9 @@ export default function ContactPage() {
                             </div>
 
                             {status === 'error' && (
-                                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3 text-red-400 text-sm">
-                                    <AlertCircle size={18} />
-                                    Failed to send message. Please try again later.
+                                <div role="alert" className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3 text-red-400 text-sm">
+                                    <AlertCircle size={18} className="shrink-0" />
+                                    {errorMessage}
                                 </div>
                             )}
 

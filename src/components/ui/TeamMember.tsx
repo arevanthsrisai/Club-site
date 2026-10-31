@@ -1,8 +1,31 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { Linkedin, Github, Mail, GraduationCap, Instagram } from "lucide-react";
+
+/** Only http(s) URLs are ever turned into links from stored profile data. */
+function safeHttpUrl(raw: string | undefined): string | undefined {
+    if (!raw) return undefined;
+    try {
+        const url = new URL(raw);
+        return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Builds a real mailto: link from a stored email address. Stored addresses are
+ * plain strings — using one directly as an href makes the browser treat it as
+ * a relative site route (/admin@example.com), which 404s. Anything that is not
+ * a plausible email yields undefined so no misleading button is rendered.
+ */
+function mailtoLink(raw: string | undefined): string | undefined {
+    if (!raw) return undefined;
+    const email = raw.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return undefined;
+    return `mailto:${encodeURIComponent(email)}`;
+}
 
 interface TeamMemberProps {
     member: {
@@ -21,17 +44,17 @@ interface TeamMemberProps {
 
 export default function TeamMember({ member }: TeamMemberProps) {
     return (
-        <div className="team-member bg-black/60 rounded-[20px] p-[clamp(15px,3vw,30px)] text-center backdrop-blur-[10px] border border-white/10 transition-all duration-400 group relative overflow-hidden hover:-translate-y-[15px] hover:scale-102 hover:border-[#0099FF30] hover:shadow-[0_20px_40px_rgba(0,153,255,0.2)] h-full flex flex-col items-center">
+        <div className="team-member bg-black/60 rounded-[20px] p-[clamp(15px,3vw,30px)] text-center backdrop-blur-[10px] border border-white/10 transition-colors duration-300 group relative overflow-hidden hover:border-[#0099FF40] h-full flex flex-col items-center">
             {/* Hover Background Effect */}
             <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-tr from-transparent via-[rgba(0,153,255,0.1)] to-transparent -translate-y-full transition-transform duration-600 ease-in-out group-hover:translate-y-full" />
 
-            <div className="member-image relative w-[clamp(120px,25vw,180px)] h-[clamp(120px,25vw,180px)] rounded-full mx-auto mb-[25px] overflow-hidden border-[4px] border-[#0099FF] shadow-[0_0_30px_rgba(0,153,255,0.3)] transition-all duration-400 group-hover:scale-110 group-hover:shadow-[0_0_50px_rgba(0,153,255,0.5)] flex-shrink-0">
+            <div className="member-image relative w-[clamp(120px,25vw,180px)] h-[clamp(120px,25vw,180px)] rounded-full mx-auto mb-[25px] overflow-hidden border-[4px] border-[#0099FF] shadow-[0_0_30px_rgba(0,153,255,0.3)] transition-shadow duration-400 group-hover:shadow-[0_0_50px_rgba(0,153,255,0.5)] flex-shrink-0">
                 {/* We use a standard img or Next.js Image. Since dynamic path, assume valid. */}
                 <Image
                     src={member.image || "/images/placeholder-user.jpg"}
                     alt={member.name}
                     fill
-                    className="object-cover transition-transform duration-400 group-hover:scale-110"
+                    className="object-cover"
                     sizes="(max-width: 768px) 150px, 180px"
                 />
             </div>
@@ -45,23 +68,27 @@ export default function TeamMember({ member }: TeamMemberProps) {
             </p>
 
             <div className="member-social flex justify-center gap-[clamp(10px,2vw,20px)] mt-auto pt-[20px] border-t border-white/10 w-full">
-                {member.links.linkedin && (
-                    <a href={member.links.linkedin} target="_blank" className="social-link" aria-label="LinkedIn">
+                {safeHttpUrl(member.links.linkedin) && (
+                    <a href={safeHttpUrl(member.links.linkedin)} target="_blank" rel="noopener noreferrer" className="social-link" aria-label={`LinkedIn profile of ${member.name}`}>
                         <Linkedin size={18} />
                     </a>
                 )}
-                {member.links.github && (
-                    <a href={member.links.github} target="_blank" className="social-link" aria-label="GitHub">
+                {safeHttpUrl(member.links.github) && (
+                    <a href={safeHttpUrl(member.links.github)} target="_blank" rel="noopener noreferrer" className="social-link" aria-label={`GitHub profile of ${member.name}`}>
                         <Github size={18} />
                     </a>
                 )}
-                {member.links.instagram && (
-                    <a href={member.links.instagram} target="_blank" className="social-link" aria-label="Instagram">
+                {safeHttpUrl(member.links.instagram) && (
+                    <a href={safeHttpUrl(member.links.instagram)} target="_blank" rel="noopener noreferrer" className="social-link" aria-label={`Instagram profile of ${member.name}`}>
                         <Instagram size={18} />
                     </a>
                 )}
-                {member.links.mail && (
-                    <a href={member.links.mail} target="_blank" className="social-link" aria-label="Email">
+                {mailtoLink(member.links.mail) && (
+                    <a
+                        href={mailtoLink(member.links.mail)}
+                        className="social-link"
+                        aria-label={`Email ${member.name} at ${member.links.mail}`}
+                    >
                         <Mail size={18} />
                     </a>
                 )}

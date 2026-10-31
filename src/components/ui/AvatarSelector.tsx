@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { X, Loader2, Check } from "lucide-react";
 
@@ -15,6 +15,7 @@ export default function AvatarSelector({ currentAvatar, onSelect, onClose }: Ava
     const [loading, setLoading] = useState(true);
     const [activeCategory, setActiveCategory] = useState<string>("");
     const [selectedAvatar, setSelectedAvatar] = useState(currentAvatar || "");
+    const closeRef = useRef<HTMLButtonElement>(null);
 
     useEffect(() => {
         const fetchAvatars = async () => {
@@ -57,8 +58,24 @@ export default function AvatarSelector({ currentAvatar, onSelect, onClose }: Ava
 
     const categories = Object.keys(avatarsMap);
 
+    // Escape closes the dialog; focus lands on the close button for keyboard users.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        document.addEventListener("keydown", onKeyDown);
+        closeRef.current?.focus();
+        return () => document.removeEventListener("keydown", onKeyDown);
+    }, [onClose]);
+
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Select avatar"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
             <div className="bg-[#111] border border-white/10 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl">
 
                 {/* Header */}
@@ -67,7 +84,7 @@ export default function AvatarSelector({ currentAvatar, onSelect, onClose }: Ava
                         <h2 className="text-xl font-bold text-white">Select Avatar</h2>
                         <p className="text-sm text-gray-400">Choose your cybernetic identity</p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
+                    <button ref={closeRef} onClick={onClose} aria-label="Close avatar selector" className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
                         <X size={20} />
                     </button>
                 </div>

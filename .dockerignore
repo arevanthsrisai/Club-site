@@ -1,6 +1,81 @@
-node_modules
-.next
-.git
+# Dependencies and lockfiles (lockfile is copied during build, not for cache)
+node_modules/
+
+# Next.js build output and caches
+.next/
+out/
+
+# Local environment files (secrets must never enter the image)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+dev.vars
+.dev.vars
+
+# Debug / test artifacts
+firestore-debug.log
+firestore-*.log
+*-debug.log
+*.local.log
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+screenshots/
+*.png.tmp
+videos/
+traces/
+*.report.json
+debug-dump/
+
+# Migration state
+scripts/.migrate-fb-b2-state.json
+
+# Temporary upload / ffmpeg scratch space
+tmp/
+.uploads/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
 .DS_Store
-.env*.local
-docs
+Thumbs.db
+desktop.ini
+
+# Freebuff
+.freebuff/
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in container)
+*.md
+!README.md
+docs/
+deploy/
+
+# Scripts (debug/migration tools not needed at runtime)
+scripts/
+!scripts/migrate-firebase-to-b2.mjs
+
+# Tests
+tests/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Docker files (not needed at runtime)
+Dockerfile
+.dockerignore
+cloudbuild.yaml
+
+# Nginx configs (VPS-only)
+deploy/
+
+# Cors config
+cors.json

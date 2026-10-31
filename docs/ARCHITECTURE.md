@@ -18,7 +18,9 @@ There are two kinds of account. Both use Firebase Auth.
 
 **Admins** sign up at `/admin/signup`. This creates `admins/{uid}` with role `pending` and a matching `pending_registrations/{uid}` request. The CTO approves or rejects the request under Manage Admins, and the applicant gets an email either way. Approved admins start as `Activator` with status `onboarding`, fill in their profile on `/admin/onboarding`, and then become `active`.
 
-Admin roles: President, VP_AIML, VP_DSA, CTO, AdminHead, PRHead, Treasurer, Mentor, Faculty and Activator. Most have a seat limit (one President, up to three Mentors and so on; see `ROLE_LIMITS` in `src/services/admin.ts`).
+Club roles (President, Vice Presidents, Treasurer and so on) are stored in the `club_roles` collection. The CTO adds, renames, reorders and removes them under Manage Admins → Club Roles. Each role has a label, an order for the team pages and a seat limit. A role can only be deleted once nobody holds it. Two roles are fixed in code (`src/lib/roles.ts`): **CTO**, and **Activator**, the unlimited default every approved admin starts with. The defaults in that file are stored the first time the CTO opens Manage Admins, and are used until then.
+
+When the CTO gives someone a role whose seats are all taken, Manage Admins asks who to replace. The replaced member moves back to Activator in the same step.
 
 - **Only the CTO** can change roles, approve admins, remove admins and use the Doomsday console.
 - **Any admin** can manage events, gallery, resources, alumni, messages and settings.
@@ -40,6 +42,7 @@ Admin roles: President, VP_AIML, VP_DSA, CTO, AdminHead, PRHead, Treasurer, Ment
 | `gallery`, `resources`, `alumni` | Public content | Everyone |
 | `messages` | Contact form submissions | Admins (anyone can create) |
 | `audit_logs` | Admin actions; only the latest 30 are kept | Admins |
+| `club_roles` | Role labels, order and seat limits | Everyone (CTO writes) |
 | `settings` | Class and section lists for the profile form | Signed-in users |
 
 Every collection except `messages` can only be written by admins from the browser. Students change their own `users` doc directly; everything else they do goes through `/api/registrations`.
@@ -76,7 +79,7 @@ Each event moves through flags that admins control from the Forms page (`/admin/
 
 ## Storage
 
-Uploads go to these folders: `events/`, `event-images/`, `gallery/`, `resources/`, `resource-thumbnails/`, `profiles/` and `team_profiles/`. Only admins can write them (`storage.rules` checks the uploader's `admins` doc). Students can only write their own `avatars/{uid}/` folder. Everything is publicly readable.
+Uploads go to these folders: `events/`, `event-images/`, `gallery/`, `resources/`, `resource-thumbnails/`, `profiles/` and `team_profiles/`. Only admins can write them (`storage.rules` checks that the uploader has an `admins` doc with a role other than `pending`). Students can only write their own `avatars/{uid}/` folder. Everything is publicly readable.
 
 ## Configuration
 

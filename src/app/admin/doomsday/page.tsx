@@ -6,11 +6,12 @@ import { transferCTORole } from "@/lib/api";
 import { db, storage } from "@/lib/firebase"; // Import storage
 import { collection, getDocs, deleteDoc, doc, query, where, setDoc, Timestamp } from "firebase/firestore";
 import { ref, deleteObject } from "firebase/storage";
-import { Skull, AlertTriangle, ArrowRight, Database, ShieldAlert, Folder, Users, Calendar, Image as ImageIcon, BookOpen, MessageSquare, Settings, ChevronRight, X, Trash2, Eraser, RefreshCw } from "lucide-react";
+import { Skull, AlertTriangle, Database, ShieldAlert, Folder, Users, Calendar, Image as ImageIcon, BookOpen, MessageSquare, Settings, ChevronRight, X, Trash2, Eraser, RefreshCw, TerminalSquare } from "lucide-react";
 import { useRouter } from "next/navigation";
 import CollectionManager from "@/components/admin/CollectionManager";
 import SettingsPanel from "@/components/admin/SettingsPanel";
 import { useToast } from "@/components/ui/Toast";
+import PageHeader from "@/components/ui/PageHeader";
 
 export default function DoomsdayPage() {
     const { user, profile } = useAuth();
@@ -247,20 +248,16 @@ export default function DoomsdayPage() {
 
     return (
         <div className="max-w-7xl mx-auto text-white pb-20">
-            {/* Header */}
-            <div className="mb-12 border-b border-white/10 pb-6 flex items-end justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-                        <Database className="text-blue-500" /> System Console
-                    </h1>
-                    <p className="text-gray-400 font-mono text-sm">
-                        Direct Database Access & Storage Management.
-                    </p>
-                </div>
-                <div className="text-xs font-mono text-gray-500">
-                    Logged in as: <span className="text-blue-400">{user?.email}</span>
-                </div>
-            </div>
+            <PageHeader
+                title="System Console"
+                subtitle="Direct database access & storage management."
+                icon={<TerminalSquare size={26} />}
+                actions={
+                    <div className="text-xs font-mono text-gray-500">
+                        Logged in as: <span className="text-blue-400">{user?.email}</span>
+                    </div>
+                }
+            />
 
             {/* Main Console Area */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 mb-20">

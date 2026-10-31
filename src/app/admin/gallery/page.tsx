@@ -6,6 +6,7 @@ import { Event } from "@/types";
 import { Calendar, Image as ImageIcon, ArrowRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+import PageHeader from "@/components/ui/PageHeader";
 
 export default function AdminGalleryDashboard() {
     const [events, setEvents] = useState<Event[]>([]);
@@ -25,11 +26,11 @@ export default function AdminGalleryDashboard() {
 
     return (
         <div className="max-w-6xl mx-auto text-white">
-            <h1 className="text-3xl font-bold mb-8 flex items-center gap-3">
-                <ImageIcon className="text-blue-500" /> Manage Event Galleries
-            </h1>
-
-            <p className="text-gray-400 mb-8">Select an event to add photos and videos.</p>
+            <PageHeader
+                title="Manage Event Galleries"
+                subtitle="Select an event to add photos and videos."
+                icon={<ImageIcon size={26} />}
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {events.map((event) => (
@@ -41,7 +42,7 @@ export default function AdminGalleryDashboard() {
                         {/* Event Thumbnail (reuse event image if available) */}
                         <div className="h-40 bg-black/50 relative">
                             {event.image ? (
-                                <Image src={event.image} alt={event.title} fill className="object-cover opacity-60 group-hover:opacity-80 transition-opacity" />
+                                <Image src={event.image} alt={event.title} fill sizes="(max-width: 767px) 100vw, (max-width: 1023px) calc(50vw - 172px), calc(33.333vw - 123px)" className="object-cover opacity-60 group-hover:opacity-80 transition-opacity" />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-600">
                                     <ImageIcon size={32} />

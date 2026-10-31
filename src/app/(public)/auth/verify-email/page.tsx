@@ -95,7 +95,7 @@ export default function VerifyEmailPage() {
                 </div>
 
                 {message && (
-                    <p className={`mt-6 text-sm p-3 rounded-lg ${message.includes("sent") ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+                    <p role="status" className={`mt-6 text-sm p-3 rounded-lg ${message.includes("sent") ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
                         {message}
                     </p>
                 )}

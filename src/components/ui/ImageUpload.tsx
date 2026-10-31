@@ -1,7 +1,6 @@
-import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
-import { uploadImage } from "@/lib/api";
+import { uploadMedia } from "@/lib/mediaUpload";
 import { useToast } from "@/components/ui/Toast";
 
 interface ImageUploadProps {
@@ -22,12 +21,12 @@ export default function ImageUpload({ path, onUpload, currentImage }: ImageUploa
         setUploading(true);
         setProgress(0);
         try {
-            const url = await uploadImage(file, path, (p) => setProgress(p));
+            const { url } = await uploadMedia(file, path, (p) => setProgress(p));
             setPreview(url);
             onUpload(url);
         } catch (error) {
             console.error("Upload failed", error);
-            toast.error("Failed to upload image");
+            toast.error(error instanceof Error ? error.message : "Failed to upload image");
         } finally {
             setUploading(false);
         }
@@ -60,7 +59,7 @@ export default function ImageUpload({ path, onUpload, currentImage }: ImageUploa
             >
                 {preview ? (
                     <div className="relative group w-48 h-32 mx-auto rounded-lg overflow-hidden">
-                        <Image src={preview} alt="Preview" fill className="object-cover" />
+                        <Image src={preview} alt="Preview" fill sizes="192px" className="object-cover" />
                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                             <p className="text-white text-xs">Drag new image to replace</p>
                         </div>

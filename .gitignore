@@ -24,6 +24,11 @@ pnpm-debug.log*
 
 # local env files
 .env*.local
+.env.local*
+.env.local1
+
+# emulator debug logs
+firestore-debug.log
 
 # vercel
 .vercel
@@ -32,3 +37,16 @@ pnpm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
+
+# Freebuff Sites build artifacts
+freebuff-sites-build/
+
+# build logs
+build.log
+
+# local server run logs
+dev-server.log
+prod-server.log
+
+# verification screenshots (agent-generated, review-only artifacts)
+/screenshots/

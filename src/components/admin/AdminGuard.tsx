@@ -33,12 +33,36 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, loading, pathname, router]);
 
-    // Public auth pages
-    if (pathname === "/admin/login" || pathname === "/admin/signup") {
-        if (user) {
-            router.push("/admin");
-            return null;
+    // The first-account setup and the super_admin migration only set the role, so a CTO
+    // could end up with no status and be left out of every team list.
+    useEffect(() => {
+        if (user && profile?.role === "CTO" && !profile.status) {
+            import("@/lib/api").then(api => api.updateAdminProfileData(user.uid, { status: "active" }))
+                .catch((err: Error) => console.error("Could not set CTO status:", err));
         }
+    }, [user, profile]);
+
+    // Public auth pages
+    const isAuthPage = pathname === "/admin/login" || pathname === "/admin/signup";
+    const onboardingAdminOffPage = !!user && profile?.status === "onboarding" && !isAuthPage && pathname !== "/admin/onboarding";
+    const activeAdminOnOnboarding = !!user && !!profile?.role && profile?.status !== "onboarding" && pathname === "/admin/onboarding";
+
+    // Redirects must never run during render: schedule them in an effect and
+    // render nothing until they land.
+    useEffect(() => {
+        if (onboardingAdminOffPage) {
+            router.push("/admin/onboarding");
+        } else if (activeAdminOnOnboarding) {
+            router.push("/admin");
+        } else if (isAuthPage && user) {
+            router.push("/admin");
+        }
+    }, [onboardingAdminOffPage, activeAdminOnOnboarding, isAuthPage, user, router, pathname]);
+
+    if (onboardingAdminOffPage || activeAdminOnOnboarding) return null;
+
+    if (isAuthPage) {
+        if (user) return null;
         return <>{children}</>;
     }
 
@@ -59,17 +83,9 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
         </div>;
     }
 
-    // Handle Onboarding
+    // Handle Onboarding (redirects already scheduled in the effect above)
     if (profile?.status === "onboarding") {
-        if (pathname !== "/admin/onboarding") {
-            router.push("/admin/onboarding");
-            return null;
-        }
         return <>{children}</>;
-    } else if (pathname === "/admin/onboarding") {
-        // Active users shouldn't see onboarding again
-        router.push("/admin");
-        return null;
     }
 
     // Check Role
@@ -104,16 +120,8 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
         );
     }
 
-    // Check Allowed Roles
-    // All specialized roles (President, CTO, etc.) are allowed as long as they are active.
-    // Tenure is enforced by checkTenure() in useAuth().
-    const allowedRoles = [
-        "President", "VP_AIML", "VP_DSA", "CTO", "AdminHead",
-        "PRHead", "Treasurer", "Mentor", "Faculty", "Activator",
-        "admin"
-    ];
-
-    if (allowedRoles.includes(profile?.role || "")) {
+    // Any approved role may enter (pending was handled above). Tenure is enforced by checkTenure() in useAuth().
+    if (profile?.role) {
         return <>{children}</>;
     }
 
@@ -123,6 +131,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
 
 // Internal Component to handle First-Run / Missing Profile Logic
 import { useState } from "react";
+import { normalizeEmail } from "@/lib/normalizeEmail";
 import { createAdminProfile, isSystemInitialized } from "@/lib/api";
 import { User } from "firebase/auth";
 
@@ -136,7 +145,7 @@ function SetupAccount({ user }: { user: User }) {
             const initialized = await isSystemInitialized();
             const role = initialized ? "pending" : "CTO";
 
-            await createAdminProfile(user.uid, user.email || "");
+            await createAdminProfile(user.uid, normalizeEmail(user.email) || "");
 
             // If we just made them CTO (First user), we need to update the role in DB
             if (!initialized) {

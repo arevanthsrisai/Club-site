@@ -1,0 +1,53 @@
+[Unit]
+Description=ReLU website (Next.js standalone server)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=relu
+Group=relu
+WorkingDirectory=/opt/relu-website/current/standalone
+
+# Runtime secrets live here (root-owned, 0600). systemd reads it as root
+# before dropping to the `relu` user, so the node process gets the values
+# and nobody else on the box can read the file.
+EnvironmentFile=/etc/relu-website/runtime.env
+
+# Non-secret runtime settings.
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+Environment=NEXT_TELEMETRY_DISABLED=1
+
+ExecStart=/usr/bin/node server.js
+
+# Readiness gate: the unit is only "active" once /api/health answers inside
+# 60 seconds. Restart=always then treats a failed start like any other
+# failure and retries, so monitors can just watch systemd state.
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 60); do if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then exit 0; fi; sleep 1; done; echo "relu-website: /api/health never became ready" >&2; exit 1'
+
+# Auto-restart on crash. Burst limit stops a crash-looping boot from
+# hammering the box; systemd "failed" status then makes the outage visible.
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=120
+StartLimitBurst=10
+
+# Logs go to the journal (journald captures stdout/stderr by default);
+# read them with: journalctl -u relu-website -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=relu-website
+
+# Light hardening: no privilege escalation, no /tmp tricks, read-only system
+# dirs. Next writes only under .next (cache/prerendered), which is allowed
+# explicitly below.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/relu-website/current/standalone/.next
+
+[Install]
+WantedBy=multi-user.target

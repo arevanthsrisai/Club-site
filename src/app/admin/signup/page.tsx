@@ -31,13 +31,16 @@ export default function AdminSignupPage() {
         setLoading(true);
         setError("");
 
+        // Normalize early so the duplicate check and the stored record agree.
+        const normalizedEmail = email.trim().toLowerCase();
+
         try {
             // 1. Create Auth User
-            const user = await signUp(email, password);
+            const user = await signUp(normalizedEmail, password);
             if (user) {
                 // 2. Create Pending Record (The "Dummy Table")
                 const { createPendingRegistration } = await import("@/lib/api");
-                await createPendingRegistration(user.uid, email);
+                await createPendingRegistration(user.uid, normalizedEmail);
 
                 // 3. Sign Out immediately (they are not approved yet)
                 const { signOut } = await import("@/lib/auth");
@@ -49,7 +52,7 @@ export default function AdminSignupPage() {
             }
         } catch (err: any) {
             console.error(err);
-            if (err.code === "auth/email-already-in-use") {
+            if (err.code === "auth/email-already-in-use" || err.message === "Email is already registered.") {
                 setError("Email already in use. Please Log In to request Admin Access.");
             } else {
                 setError("Failed to create account. Try again.");

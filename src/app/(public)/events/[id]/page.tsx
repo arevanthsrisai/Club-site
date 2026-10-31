@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { subscribeToEvent, subscribeToEventGallery } from "@/lib/api";
 import { Event, GalleryImage } from "@/types";
-import { Calendar, Clock, MapPin, Play, Image as ImageIcon, ArrowLeft, Star } from "lucide-react";
+import { Calendar, Clock, MapPin, Play, Image as ImageIcon, ArrowLeft, Star, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import ReactMarkdown from "react-markdown";
+import Markdown from "@/components/ui/Markdown";
 
 export default function EventDetailPage() {
     const params = useParams();
@@ -43,13 +43,26 @@ export default function EventDetailPage() {
         };
     }, [eventId]);
 
-    if (loading) return <div className="min-h-screen pt-32 text-center text-white">Loading Event...</div>;
-    if (!event) return <div className="min-h-screen pt-32 text-center text-white">Event not found.</div>;
+    if (loading) return (
+        <div className="min-h-screen pt-32 flex flex-col items-center justify-center gap-4">
+            <Loader2 size={40} className="animate-spin text-blue-500" />
+            <p className="text-gray-400 text-sm">Loading event…</p>
+        </div>
+    );
+    if (!event) return (
+        <div className="min-h-screen pt-32 flex flex-col items-center justify-center gap-4 text-center px-4">
+            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">Event not found</h1>
+            <p className="text-gray-400">This event may have been removed or the link is incorrect.</p>
+            <Link href="/events" className="mt-2 px-6 py-2.5 rounded-full bg-white/10 border border-white/10 hover:bg-white/20 text-white text-sm font-bold transition-colors">
+                Browse all events
+            </Link>
+        </div>
+    );
 
     return (
-        <div className="min-h-screen pt-24 pb-12 px-4 bg-black">
+        <div className="min-h-screen pt-32 md:pt-36 pb-12 px-4">
             <div className="max-w-6xl mx-auto">
-                <Link href="/events" className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-8 transition-colors">
+                <Link href="/events" className="inline-flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm font-medium">
                     <ArrowLeft size={18} /> Back to Events
                 </Link>
 
@@ -59,6 +72,7 @@ export default function EventDetailPage() {
                         src={event.image || "/images/event-placeholder.jpg"}
                         alt={event.title}
                         fill
+                        sizes="min(calc(100vw - 32px), 1152px)"
                         className="object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
@@ -85,11 +99,11 @@ export default function EventDetailPage() {
 
                 {/* Details Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 mb-16">
-                    <div className="lg:col-span-2 prose prose-invert max-w-none text-gray-300 leading-loose text-lg">
+                    <div className="lg:col-span-2 max-w-none text-lg">
                         <h2 className="text-white font-bold text-2xl mb-4">About the Event</h2>
-                        <div className="whitespace-pre-wrap">
-                            <ReactMarkdown>{event.fullDescription || event.description}</ReactMarkdown>
-                        </div>
+                        {/* Shared renderer: same safe pipeline + styling as the admin
+                            preview; plain text still renders as plain paragraphs. */}
+                        <Markdown>{event.fullDescription || event.description}</Markdown>
 
                         {event.details && event.details.length > 0 && (
                             <div className="mt-8">
@@ -97,8 +111,10 @@ export default function EventDetailPage() {
                                 <ul className="space-y-2">
                                     {event.details.map((item, idx) => (
                                         <li key={idx} className="flex items-start gap-3">
-                                            <span className="mt-2 w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                                            {item}
+                                            <span className="mt-2.5 w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                                            <div className="min-w-0">
+                                                <Markdown className="text-base">{item}</Markdown>
+                                            </div>
                                         </li>
                                     ))}
                                 </ul>
@@ -143,7 +159,15 @@ export default function EventDetailPage() {
                                     {/* Handle Video vs Image */}
                                     {media.type === 'video' ? (
                                         <div className="relative aspect-video">
-                                            <video src={media.src} controls className="w-full h-full object-cover" />
+                                            {/* Poster frame (generated server-side and stored in B2)
+                                                so paused videos look intentional instead of black. */}
+                                            <video
+                                                src={media.src}
+                                                poster={media.thumbnailKey ? `/api/gallery/media?key=${encodeURIComponent(media.thumbnailKey)}` : undefined}
+                                                controls
+                                                preload="metadata"
+                                                className="w-full h-full object-cover"
+                                            />
                                             <div className="absolute top-2 right-2 bg-black/50 px-2 py-1 rounded text-xs text-white flex items-center gap-1 pointer-events-none">
                                                 <Play size={10} /> Video
                                             </div>
@@ -156,6 +180,7 @@ export default function EventDetailPage() {
                                                 width={0}
                                                 height={0}
                                                 sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                                loading="lazy"
                                                 className="w-full h-auto hover:scale-105 transition-transform duration-500"
                                             />
                                         </div>

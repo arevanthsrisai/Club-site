@@ -17,12 +17,30 @@ export async function getEvents(): Promise<Event[]> {
     }
 }
 
-export function subscribeToEvents(callback: (events: Event[]) => void) {
+export function subscribeToEvents(callback: (events: Event[]) => void, onError?: (error: unknown) => void) {
     const q = query(collection(db, "events"));
     return onSnapshot(q, (snapshot) => {
         const events = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Event));
         callback(events);
-    });
+    }, onError);
+}
+
+/**
+ * Real registration counts, one aggregate count query per event (no documents
+ * downloaded beyond metadata). Used by the events table and the Forms page.
+ */
+export async function getEventRegistrationCounts(eventIds: string[]): Promise<Record<string, number>> {
+    const { collection, where, getCountFromServer } = await import("firebase/firestore");
+    const out: Record<string, number> = {};
+    await Promise.all(eventIds.map(async (id) => {
+        try {
+            const snap = await getCountFromServer(query(collection(db, "registrations"), where("eventId", "==", id)));
+            out[id] = snap.data().count;
+        } catch (e) {
+            console.warn(`Registration count for ${id} unavailable:`, e);
+        }
+    }));
+    return out;
 }
 
 export async function createEvent(event: Omit<Event, "id">) {
@@ -45,9 +63,22 @@ export async function deleteEvent(id: string) {
         const galleryDeletePromises = galleryImages.map(img => deleteFromGallery(img.id));
         await Promise.all(galleryDeletePromises);
 
-        // 3. Delete Event Cover Image
+        // 3. Delete Event Cover Image (Firebase legacy + B2 via the keyed route)
         if (eventData.image) {
             await deleteFileByUrl(eventData.image);
+            try {
+                const { getAuthHeaders } = await import("@/lib/authHeaders");
+                const headers = await getAuthHeaders();
+                if (headers) {
+                    await fetch("/api/admin/delete-b2", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", ...headers },
+                        body: JSON.stringify({ url: eventData.image }),
+                    });
+                }
+            } catch (e) {
+                console.warn("Cover object cleanup skipped:", e);
+            }
         }
 
         // 4. Delete Event Document

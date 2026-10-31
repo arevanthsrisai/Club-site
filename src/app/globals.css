@@ -6,6 +6,13 @@
     --foreground-rgb: 255, 255, 255;
     --background-start-rgb: 0, 0, 0;
     --background-end-rgb: 0, 0, 0;
+
+    /* ---- ReLU design tokens ---- */
+    /* Surfaces: layered blacks; borders: hairlines; accent: blue→purple brand gradient. */
+    --surface: 255 255 255 / 0.05;
+    --surface-raised: 255 255 255 / 0.1;
+    --hairline: 255 255 255 / 0.1;
+    --accent: #6366f1; /* matches :focus-visible outline */
 }
 
 body {
@@ -199,6 +206,76 @@ html {
 
 .skip-link:focus {
     top: 16px;
+}
+
+.lucide-fix:-moz-focusring {
+outline: 0;
+}
+
+/* ---- Design system primitives (@layer components) ---- */
+@layer components {
+    /* Card surfaces: one vocabulary for every panel in the app. */
+    .surface {
+        @apply bg-white/5 border border-white/10 rounded-2xl;
+    }
+    .surface-raised {
+        @apply bg-white/10 border border-white/15 rounded-2xl shadow-lg shadow-black/30;
+    }
+    .section-pad {
+        @apply py-16 md:py-20 px-4 sm:px-6;
+    }
+
+    /* Chips/badges */
+    .chip {
+        @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border;
+    }
+
+    /* Buttons: single radius (rounded-xl), shared heights, states and focus. */
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-xl font-bold whitespace-nowrap
+            transition-all duration-200 focus-visible:ring-2 focus-visible:ring-blue-400
+            disabled:opacity-60 disabled:cursor-not-allowed;
+    }
+    .btn-sm { @apply px-3 py-1.5 text-xs; }
+    .btn-md { @apply px-5 py-2.5 text-sm; }
+    .btn-lg { @apply px-8 py-3.5 text-base; }
+    .btn-primary {
+        @apply text-white bg-gradient-to-r from-blue-600 to-purple-600 shadow-lg shadow-blue-600/25
+            hover:from-blue-500 hover:to-purple-500 hover:shadow-xl hover:shadow-indigo-600/30
+            hover:-translate-y-0.5 active:translate-y-0;
+    }
+    .btn-secondary {
+        @apply text-white bg-white/5 border border-white/15 backdrop-blur-sm
+            hover:bg-white/10 hover:border-white/25 hover:-translate-y-0.5 active:translate-y-0;
+    }
+    .btn-ghost {
+        @apply text-gray-300 hover:text-white hover:bg-white/5;
+    }
+    .btn-danger {
+        @apply text-red-400 bg-red-500/10 border border-red-500/25 hover:bg-red-500/20 hover:text-red-300;
+    }
+
+    /* Inputs: matched heights with buttons; visible focus; readable placeholder. */
+    .input {
+        @apply w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 text-white text-sm
+            placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/60;
+    }
+    .input-icon { @apply pl-10; }
+    .select {
+        @apply w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 text-white text-sm
+            focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/60 appearance-none cursor-pointer;
+    }
+    .label {
+        @apply block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2;
+    }
+
+    /* Section headers for public pages: consistent eyebrow + title rhythm. */
+    .eyebrow {
+        @apply text-xs font-bold uppercase tracking-[0.25em] text-blue-400 text-center;
+    }
+    .section-title {
+        @apply text-3xl md:text-4xl font-bold text-white tracking-tight text-center;
+    }
 }
 
 /* --- Accessibility: Focus Visible --- */

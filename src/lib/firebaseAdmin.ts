@@ -10,6 +10,8 @@ import { getFirestore } from 'firebase-admin/firestore';
  * 
  * Fallback: If FIREBASE_ADMIN_KEY is not set, initializes with
  * project ID only (works on GCP-hosted environments with default credentials).
+ * 
+ * Database ID: Uses FIRESTORE_DATABASE_ID env var. Required — no silent fallback to (default).
  */
 
 let adminApp: App;
@@ -31,8 +33,7 @@ function getAdminApp(): App {
                 Buffer.from(encodedKey, 'base64').toString('utf-8')
             );
             adminApp = initializeApp({
-                credential: cert(serviceAccount),
-                projectId: serviceAccount.project_id,
+                credential: cert(serviceAccount),                projectId: serviceAccount.project_id,
             });
         } catch (error) {
             console.error('Failed to parse FIREBASE_ADMIN_KEY:', error);
@@ -48,11 +49,20 @@ function getAdminApp(): App {
     return adminApp;
 }
 
+// Database ID for Admin SDK — required, no silent fallback to (default)
+function getDatabaseId(): string {
+    const id = process.env.FIRESTORE_DATABASE_ID;
+    if (!id || id.trim() === "") {
+        throw new Error("FIRESTORE_DATABASE_ID is required. Set it in .env.local (e.g., default-clone).");
+    }
+    return id.trim();
+}
+
 // Lazy-initialized exports
 export function getAdminAuth() {
     return getAuth(getAdminApp());
 }
 
 export function getAdminFirestore() {
-    return getFirestore(getAdminApp());
+    return getFirestore(getAdminApp(), getDatabaseId());
 }

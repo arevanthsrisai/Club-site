@@ -2,6 +2,11 @@ import { db } from "@/lib/firebase";
 import { addDoc, collection, query, orderBy, onSnapshot, limit, where, getDocs, writeBatch, Timestamp, getCountFromServer } from "firebase/firestore";
 import { AuditLog } from "@/types";
 
+// Retention Policy: keep the latest logs. The Activity Log page gives admins
+// searchable history, so the old 30-record scissors rule is raised — enough
+// history to diagnose admin operations without ever risking unbounded growth.
+export const AUDIT_RETENTION_RECORDS = 500;
+
 export async function logActivity(actorUid: string, actorName: string, action: string, details: any = {}) {
     try {
         await addDoc(collection(db, "audit_logs"), {
@@ -12,16 +17,15 @@ export async function logActivity(actorUid: string, actorName: string, action: s
             timestamp: Timestamp.now()
         });
 
-        // Retention Policy: Keep only the latest 30 logs
         // Use count query first to avoid fetching all documents on every write
         const countSnap = await getCountFromServer(collection(db, "audit_logs"));
-        if (countSnap.data().count > 30) {
+        if (countSnap.data().count > AUDIT_RETENTION_RECORDS) {
             const q = query(collection(db, "audit_logs"), orderBy("timestamp", "desc"));
             const snapshot = await getDocs(q);
 
-            if (snapshot.size > 30) {
+            if (snapshot.size > AUDIT_RETENTION_RECORDS) {
                 const batch = writeBatch(db);
-                const docsToDelete = snapshot.docs.slice(30);
+                const docsToDelete = snapshot.docs.slice(AUDIT_RETENTION_RECORDS);
                 docsToDelete.forEach((doc) => {
                     batch.delete(doc.ref);
                 });

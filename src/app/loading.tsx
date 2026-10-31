@@ -1,14 +1,7 @@
-"use client";
+import PageLoading from "@/components/ui/PageLoading";
 
-import { Loader2 } from "lucide-react";
-
+// App-level fallback for segments without their own loading.tsx
+// (auth pages, /events, etc.). Matches the shared public loader.
 export default function Loading() {
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-4">
-                <Loader2 size={48} className="animate-spin text-blue-500" />
-                <p className="text-gray-400 font-mono text-sm animate-pulse">Loading...</p>
-            </div>
-        </div>
-    );
+    return <PageLoading />;
 }

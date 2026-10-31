@@ -1,14 +1,16 @@
 import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, updateDoc, Timestamp, writeBatch, collection, query, where, getDocs, deleteDoc, onSnapshot } from "firebase/firestore";
+import { normalizeEmail } from "@/lib/normalizeEmail";
 import { UserProfile } from "@/types";
 
 // --- Public User API ---
 
 export async function createUserProfile(uid: string, email: string) {
+    const normalized = normalizeEmail(email) ?? email;
     const randomAvatar = await getRandomDefaultAvatar();
     const userProfile: UserProfile = {
         uid,
-        email,
+        email: normalized,
         photoURL: randomAvatar,
         isVerified: false,
         createdAt: Timestamp.now()

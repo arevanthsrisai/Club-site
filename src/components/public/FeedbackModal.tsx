@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2, Star } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 import { submitFeedback } from "@/lib/api";
@@ -26,7 +26,19 @@ export default function FeedbackModal({ eventId, onClose, onSuccess }: FeedbackM
     const [matrixRatings, setMatrixRatings] = useState<Record<string, number>>({});
     const [opinion, setOpinion] = useState("");
     const [loading, setLoading] = useState(false);
+    const closeRef = useRef<HTMLButtonElement>(null);
     const toast = useToast();
+
+    // Escape and backdrop close; focus lands on the close button like
+    // the avatar and check-in dialogs.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && !loading) onClose();
+        };
+        document.addEventListener("keydown", onKeyDown);
+        closeRef.current?.focus();
+        return () => document.removeEventListener("keydown", onKeyDown);
+    }, [onClose, loading]);
 
     const handleMatrixChange = (key: string, value: number) => {
         setMatrixRatings(prev => ({ ...prev, [key]: value }));
@@ -58,9 +70,15 @@ export default function FeedbackModal({ eventId, onClose, onSuccess }: FeedbackM
         opinion.trim().length > 0;
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Event feedback"
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
+        >
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
-                <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white z-10"><X size={20} /></button>
+                <button onClick={onClose} aria-label="Close feedback form" ref={closeRef} className="absolute top-4 right-4 text-gray-400 hover:text-white z-10"><X size={20} /></button>
 
                 <div className="p-8 pt-16">
                     <h2 className="text-2xl font-bold mb-2">Event Feedback</h2>
@@ -76,6 +94,8 @@ export default function FeedbackModal({ eventId, onClose, onSuccess }: FeedbackM
                                         key={star}
                                         type="button"
                                         onClick={() => setOverallRating(star)}
+                                        aria-label={`Rate ${star} out of 5`}
+                                        aria-pressed={overallRating >= star}
                                         className={`p-2 rounded-full transition-all ${overallRating >= star ? 'text-yellow-400 scale-110' : 'text-gray-600 hover:text-gray-400'}`}
                                     >
                                         <Star size={32} fill={overallRating >= star ? "currentColor" : "none"} />
@@ -107,6 +127,7 @@ export default function FeedbackModal({ eventId, onClose, onSuccess }: FeedbackM
                                                     value={val}
                                                     checked={matrixRatings[q.key] === val}
                                                     onChange={() => handleMatrixChange(q.key, val)}
+                                                    aria-label={`${q.label}: ${val} of 5`}
                                                     className="w-5 h-5 accent-blue-500 cursor-pointer"
                                                 />
                                             </div>

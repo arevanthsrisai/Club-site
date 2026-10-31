@@ -4,28 +4,32 @@ import { AdminProfile, PendingRegistration } from "@/types";
 import { logActivity } from "./audit";
 import { deleteUserData } from "./users";
 import { isPasswordStrong } from "@/lib/schemas";
+import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, DEFAULT_ROLES } from "@/lib/roles";
+import { normalizeEmail } from "@/lib/normalizeEmail";
+import { assertEmailNotInUse } from "@/services/emails";
+
+function normalizeIncomingEmail(email: string): string {
+    const normalized = normalizeEmail(email);
+    if (!normalized) throw new Error("Email is required.");
+    return normalized;
+}
 
 // --- Constants ---
 const TENURE_DURATION_MS = 2 * 365 * 24 * 60 * 60 * 1000; // 2 Years
 
-const ROLE_LIMITS: Record<string, number> = {
-    "President": 1,
-    "VP_AIML": 1,
-    "VP_DSA": 1,
-    "AdminHead": 1,
-    "PRHead": 1,
-    "CTO": 1,
-    "Treasurer": 1,
-    "Mentor": 3,
-    "Faculty": 2,
-    "Activator": Infinity
-};
-
 // --- Helpers ---
 
 async function checkRoleLimit(role: string): Promise<boolean> {
-    const limit = ROLE_LIMITS[role];
-    if (limit === undefined || limit === Infinity) return true;
+    let limit: number | null;
+    if (role === CTO_ROLE.id) {
+        limit = CTO_ROLE.limit;
+    } else {
+        const snap = await getDoc(doc(db, "club_roles", role));
+        const def = snap.exists() ? snap.data() as ClubRole : DEFAULT_ROLES.find(r => r.id === role);
+        if (!def) throw new Error(`Unknown role: ${role}`);
+        limit = def.limit;
+    }
+    if (limit === null) return true;
 
     const q = query(collection(db, "admins"), where("role", "==", role), where("status", "==", "active"));
     const snapshot = await getCountFromServer(q);
@@ -55,9 +59,10 @@ export async function checkTenure(admin: AdminProfile) {
 // --- Admin Management API (RBAC) ---
 
 export async function createAdminProfile(uid: string, email: string) {
+    const normalized = normalizeEmail(email) ?? email;
     await setDoc(doc(db, "admins", uid), {
         uid,
-        email,
+        email: normalized,
         role: "pending",
         createdAt: Timestamp.now()
     });
@@ -120,6 +125,21 @@ export async function updateAdminRole(uid: string, role: string, actorUid?: stri
     }
 }
 
+// Gives a full role to targetUid and moves its current holder back to the default role, in one step.
+export async function replaceRoleHolder(targetUid: string, replacedUid: string, role: string, actorUid?: string, actorName?: string) {
+    if (role === CTO_ROLE.id) throw new Error("Use the Doomsday console to hand over the CTO role.");
+    await runTransaction(db, async (transaction) => {
+        const replacedRef = doc(db, "admins", replacedUid);
+        const replaced = await transaction.get(replacedRef);
+        if (replaced.data()?.role !== role) throw new Error("That member no longer holds this role. Refresh and try again.");
+        transaction.update(replacedRef, { role: DEFAULT_ROLE_ID });
+        transaction.update(doc(db, "admins", targetUid), { role });
+    });
+    if (actorUid) {
+        await logActivity(actorUid, actorName || "Unknown", "REPLACE_ROLE", { role, targetUid, replacedUid });
+    }
+}
+
 export async function updateAdminProfileData(uid: string, data: Partial<AdminProfile>) {
     await updateDoc(doc(db, "admins", uid), data);
 }
@@ -131,9 +151,10 @@ export async function deleteAdmin(uid: string) {
 // --- Doomsday (CTO Transfer) ---
 export async function transferCTORole(currentCTOUid: string, targetEmail: string) {
     // This requires a transaction to be safe
-    // 1. Find target user by email
+    // 1. Find target user by email (normalized so case differences never miss)
+    const normalizedTarget = normalizeEmail(targetEmail) ?? targetEmail;
     const adminsRef = collection(db, "admins");
-    const q = query(adminsRef, where("email", "==", targetEmail));
+    const q = query(adminsRef, where("email", "==", normalizedTarget));
     const querySnapshot = await getDocs(q);
 
     if (querySnapshot.empty) {
@@ -164,9 +185,10 @@ export async function transferCTORole(currentCTOUid: string, targetEmail: string
 // --- Pending Registrations (The "Dummy Table") ---
 
 export async function createPendingRegistration(uid: string, email: string) {
+    const normalized = normalizeIncomingEmail(email);
     // We use the UID as the document ID so we can easily link it to the Auth user
     await setDoc(doc(db, "pending_registrations", uid), {
-        email,
+        email: normalized,
         requestedAt: Timestamp.now()
     });
 }
@@ -210,7 +232,7 @@ export async function approveRegistration(uid: string, actorUid?: string, actorN
 
     if (pendingSnap.exists()) {
         const data = pendingSnap.data();
-        email = data.email;
+        email = normalizeIncomingEmail(data.email);
         createdAt = data.requestedAt;
         // Delete from pending
         await deleteDoc(pendingRef);
@@ -221,7 +243,7 @@ export async function approveRegistration(uid: string, actorUid?: string, actorN
 
         if (adminSnap.exists() && adminSnap.data().role === "pending") {
             const data = adminSnap.data();
-            email = data.email;
+            email = normalizeIncomingEmail(data.email);
             createdAt = data.createdAt;
         } else {
             throw new Error("Registration request not found");
@@ -281,6 +303,7 @@ import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 
 export async function createAdminDirectly(email: string, pass: string, role: string, actorUid?: string, actorName?: string) {
+    const normalized = normalizeIncomingEmail(email);
     if (!isPasswordStrong(pass)) {
         throw new Error("Password must be at least 8 characters with uppercase, lowercase, a number and a special character.");
     }
@@ -289,6 +312,9 @@ export async function createAdminDirectly(email: string, pass: string, role: str
     if (!(await checkRoleLimit(role))) {
         throw new Error(`Role limit reached for ${role}. Cannot create.`);
     }
+
+    // 0b. Race-safe duplicate guard before Auth state is mutated
+    await assertEmailNotInUse(normalized);
 
     // 1. Initialize secondary app with unique name to avoid collisions on concurrent calls
     const appName = `SecondaryApp_${Date.now()}`;
@@ -305,13 +331,13 @@ export async function createAdminDirectly(email: string, pass: string, role: str
 
     try {
         // 2. Create User in Auth
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, pass);
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, normalized, pass);
         const user = userCredential.user;
 
         // 3. Create Admin Profile (Active immediately)
         await setDoc(doc(db, "admins", user.uid), {
             uid: user.uid,
-            email,
+            email: normalized,
             role,
             status: "active",
             createdAt: Timestamp.now(),

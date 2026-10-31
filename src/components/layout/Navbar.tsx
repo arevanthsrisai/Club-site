@@ -18,7 +18,8 @@ import {
     Menu,
     X,
     ChevronDown,
-    Shield
+    Shield,
+    GraduationCap
 } from "lucide-react";
 import NotificationBell from "@/components/public/NotificationBell";
 
@@ -42,9 +43,10 @@ export default function Navbar() {
         { name: "Home", path: "/", icon: Home },
         { name: "About", path: "/about", icon: Users },
         { name: "Events", path: "/events", icon: Megaphone },
+        { name: "Alumni", path: "/alumni", icon: GraduationCap },
         // AIML and DSA moved to Resources dropdown
-        { name: "Contact", path: "/contact", icon: Mail },
     ];
+    const contactItem = { name: "Contact", path: "/contact", icon: Mail };
 
     const resourceItems = [
         { name: "All Resources", path: "/resources", icon: Book },
@@ -85,8 +87,8 @@ export default function Navbar() {
                 <div className="flex items-center justify-between md:justify-center gap-8">
                     {/* Desktop Links */}
                     <div className="hidden md:flex items-center gap-1">
-                        {/* Standard Items */}
-                        {navItems.slice(0, 3).map((item) => (
+                        {/* Standard Items (includes Alumni) */}
+                        {navItems.map((item) => (
                             <Link
                                 key={item.path}
                                 href={item.path}
@@ -147,15 +149,15 @@ export default function Navbar() {
 
                         {/* Contact */}
                         <Link
-                            href={navItems[3].path}
+                            href={contactItem.path}
                             className={`
                                 relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-300
                                 hover:bg-white/10 hover:text-white
-                                ${pathname === navItems[3].path ? "bg-blue-600 text-white shadow-lg shadow-blue-500/25" : "text-gray-400"}
+                                ${pathname === contactItem.path ? "bg-blue-600 text-white shadow-lg shadow-blue-500/25" : "text-gray-400"}
                             `}
                         >
                             <span className="flex items-center gap-2">
-                                {navItems[3].name}
+                                {contactItem.name}
                             </span>
                         </Link>
 
@@ -216,7 +218,7 @@ export default function Navbar() {
 
                     {/* Mobile Toggle */}
                     <div className="md:hidden flex items-center justify-between w-full min-w-[300px]">
-                        <span className="font-bold text-white bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">ReLU</span>
+                        <span className="font-bold text-white bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600 transition-all duration-300 hover:from-cyan-300 hover:to-purple-400">ReLU</span>
 
                         <div className="flex items-center gap-4">
                             {/* Notification Bell (Mobile) - Visible when logged in */}
@@ -314,8 +316,8 @@ export default function Navbar() {
                         )}
 
                         {/* ... standard items ... */}
-                        {/* Standard Items */}
-                        {navItems.slice(0, 3).map((item) => (
+                        {/* Standard Items (includes Alumni) */}
+                        {navItems.map((item) => (
                             <Link
                                 key={item.path}
                                 href={item.path}
@@ -356,17 +358,17 @@ export default function Navbar() {
                         {/* Contact */}
                         <div className="border-t border-white/10 pt-2 mt-2">
                             <Link
-                                href={navItems[3].path}
+                                href={contactItem.path}
                                 onClick={() => setMobileMenuOpen(false)}
                                 className={`
                                     flex items-center gap-4 px-4 py-3 rounded-xl transition-colors
-                                    ${pathname === navItems[3].path ? "bg-blue-600/20 text-blue-400" : "text-gray-400 hover:bg-white/5 hover:text-white"}
+                                    ${pathname === contactItem.path ? "bg-blue-600/20 text-blue-400" : "text-gray-400 hover:bg-white/5 hover:text-white"}
                                 `}
                             >
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${pathname === navItems[3].path ? "bg-blue-600 text-white" : "bg-white/10"}`}>
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${pathname === contactItem.path ? "bg-blue-600 text-white" : "bg-white/10"}`}>
                                     <Mail size={16} />
                                 </div>
-                                <span className="font-medium">{navItems[3].name}</span>
+                                <span className="font-medium">{contactItem.name}</span>
                             </Link>
                         </div>
                     </div>

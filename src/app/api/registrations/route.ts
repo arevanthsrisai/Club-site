@@ -3,6 +3,7 @@ import { FieldValue, Timestamp, type DocumentReference, type DocumentData } from
 import { verifyAuthToken } from '@/lib/serverAuth';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { teamRegistrationSchema } from '@/lib/schemas';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 // Students cannot write registrations, invitations or feedback directly (see firestore.rules).
 // Every student-side change goes through this route, which checks it against the caller's verified uid.
@@ -400,7 +401,36 @@ export async function POST(request: Request) {
         const body = await request.json().catch(() => null);
         const action = body && typeof body.action === 'string' && Object.hasOwn(ACTIONS, body.action) ? ACTIONS[body.action] : undefined;
         if (!action) throw new ApiError('Unknown action');
-        return NextResponse.json((await action(auth.uid, body)) ?? { success: true });
+
+        // Rate limiting per action per user
+        const rateLimitResult = await checkRateLimit(auth.uid, body.action!);
+
+        if (!rateLimitResult.allowed) {
+            return NextResponse.json(
+                {
+                    error: 'Too many requests. Please wait before trying again.',
+                    retryAfterMs: rateLimitResult.retryAfterMs,
+                },
+                {
+                    status: 429,
+                    headers: {
+                        'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+                        'X-RateLimit-Remaining': '0',
+                        'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetAt / 1000).toString(),
+                        'Retry-After': Math.ceil((rateLimitResult.retryAfterMs ?? 0) / 1000).toString(),
+                    },
+                }
+            );
+        }
+
+        const result = (await action(auth.uid, body)) ?? { success: true };
+        return NextResponse.json(result, {
+            headers: {
+                'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+                'X-RateLimit-Remaining': Math.max(0, rateLimitResult.limit - rateLimitResult.currentCount).toString(),
+                'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetAt / 1000).toString(),
+            },
+        });
     } catch (error) {
         if (error instanceof ApiError) return NextResponse.json({ error: error.message }, { status: error.status });
         console.error('Registrations API error:', error);

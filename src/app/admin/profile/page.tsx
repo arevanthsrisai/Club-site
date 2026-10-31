@@ -3,10 +3,13 @@
 
 import { useState, useEffect } from "react";
 import { useAuth, signOut } from "@/lib/auth";
-import { updateAdminProfileData, uploadImage, logActivity, deleteFileByUrl } from "@/lib/api";
+import { updateAdminProfileData, logActivity, deleteFileByUrl } from "@/lib/api";
+import { uploadMedia } from "@/lib/mediaUpload";
+import { getAuthHeaders } from "@/lib/authHeaders";
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { LogOut, Save, Camera, User, Clock, ShieldCheck, Lock, Github, Linkedin, Instagram, Calendar, FileText } from "lucide-react";
+import { LogOut, Save, Camera, User, Clock, ShieldCheck, Lock, Github, Linkedin, Instagram, Calendar, FileText, UserCircle } from "lucide-react";
+import PageHeader from "@/components/ui/PageHeader";
 import { auth } from "@/lib/firebase"; // Direct auth import needed for re-auth if not fully exposed in lib/auth
 import Image from "next/image";
 
@@ -78,12 +81,19 @@ export default function AdminProfilePage() {
         try {
             let newPhotoURL = photo;
             if (imageFile) {
-                // Upload new image
-                newPhotoURL = await uploadImage(imageFile, "profiles", (p) => setProgress(p));
+                // Upload new image to B2 through the secured server route
+                newPhotoURL = (await uploadMedia(imageFile, "profiles", (p) => setProgress(p))).url;
 
                 // Delete old image if it exists and is different from the new one (and not null)
                 if (photo && photo !== newPhotoURL) {
                     await deleteFileByUrl(photo);
+                    // Legacy Firebase URLs still clear via Firestore-only cleanup above;
+                    // B2 objects for the previous photo are removed server-side:
+                    await fetch("/api/admin/delete-b2", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+                        body: JSON.stringify({ url: photo }),
+                    }).catch(() => undefined);
                 }
             }
 
@@ -157,7 +167,11 @@ export default function AdminProfilePage() {
 
     return (
         <div className="max-w-6xl mx-auto text-white p-4">
-            <h1 className="text-3xl font-bold mb-8">My Profile</h1>
+            <PageHeader
+                title="My Profile"
+                subtitle="Your personal details, socials and account security."
+                icon={<UserCircle size={26} />}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left Column: Tenure & Info */}
@@ -173,6 +187,7 @@ export default function AdminProfilePage() {
                                         src={imageFile ? URL.createObjectURL(imageFile) : photo!}
                                         alt="Profile"
                                         fill
+                                        sizes="128px"
                                         className="object-cover"
                                     />
                                 ) : (
