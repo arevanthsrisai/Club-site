@@ -144,10 +144,13 @@ service cloud.firestore {
       // The only admin writes are the workflow flags: marking a message solved
       // (or reopening it), the timestamp of that action, and an optional
       // follow-up reminder. Nothing else on a contact message can change.
-      allow update: if isAdmin() && changedKeys().hasOnly(['solved', 'solvedAt', 'reminderAt'])
+      // Message workflow updates (solved/reminder) require an active admin,
+      // excluding onboarding admins who have not been granted full privileges.
+      allow update: if isAdmin() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.status != 'onboarding'
+        && changedKeys().hasOnly(['solved', 'solvedAt', 'reminderAt'])
         && (!('solved' in changedKeys()) || request.resource.data.solved is bool)
-        && (!('solvedAt' in changedKeys()) || request.resource.data.solvedAt is null || request.resource.data.solvedAt is timestamp)
-        && (!('reminderAt' in changedKeys()) || request.resource.data.reminderAt is null || request.resource.data.reminderAt is timestamp);
+        && (!('solvedAt' in changedKeys()) || request.resource.data.solvedAt == null || request.resource.data.solvedAt is timestamp)
+        && (!('reminderAt' in changedKeys()) || request.resource.data.reminderAt == null || request.resource.data.reminderAt is timestamp);
     }
 
     match /audit_logs/{document} {

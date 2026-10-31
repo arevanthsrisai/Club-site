@@ -120,6 +120,11 @@ test('audit logs and messages', async () => {
 });
 
 test('message workflow: solved flag and reminders are admin-only', async () => {
+  // Reset fixture: earlier tests (admin escalation) legitimately flip onb to active,
+  // so restore the onboarding state before asserting onboarding admins are blocked.
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'admins/onb'), { uid: 'onb', role: 'Activator', status: 'onboarding' });
+  });
   // Anyone can send a message; the admin can then toggle solved and set a reminder.
   const msgRef = doc(fs(null), 'messages/m1');
   await assertSucceeds(setDoc(msgRef, { name: 'n', email: 'e@x', subject: 's', message: 'm', timestamp: Timestamp.now() }));
