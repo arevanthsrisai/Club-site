@@ -84,6 +84,12 @@ export const PERMISSIONS: PermissionDef[] = [
         group: "Team, alumni and site settings",
     },
     {
+        id: "excore.manage",
+        label: "Manage Ex-Core",
+        description: "Add and manage Ex-Core members and Activators: profiles, batches, role history and ordering. Profiles remain the CTO and role holders' own responsibility.",
+        group: "Team, alumni and site settings",
+    },
+    {
         id: "settings.manage",
         label: "Change site settings",
         description: "Edit shared site settings stored in the settings collection.",
@@ -123,7 +129,10 @@ export function isValidPermissionId(id: unknown): boolean {
  *   ignored rather than honored, so a corrupted write can never escalate).
  */
 export function resolveRolePermissions(role: { id: string; permissions?: unknown }): string[] {
+    // CTO → everything (protected system invariant, server-enforced).
     if (role.id === "CTO") return [...ALL_PERMISSION_IDS];
+    // Ex-Core accounts grant nothing, even if Firestore holds a stale copy.
+    if (role.id === "ExCoreMember") return [];
     if (Array.isArray(role.permissions)) {
         const known = role.permissions.filter(isValidPermissionId);
         return [...new Set(known)];

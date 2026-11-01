@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAllAdmins, deleteAdmin, AdminProfile, PendingRegistration, getPendingRegistrations, approveRegistration, rejectRegistration, subscribeToAllAdmins, subscribeToPendingRegistrations, logActivity, updateAdminRole, createAdminDirectly, replaceRoleHolder, subscribeToRoles, seedDefaultRoles } from "@/lib/api";
+import { getAllAdmins, deleteAdmin, AdminProfile, PendingRegistration, getPendingRegistrations, approveRegistration, rejectRegistration, subscribeToAllAdmins, subscribeToPendingRegistrations, logActivity, updateAdminRole, createAdminDirectly, replaceRoleHolder, subscribeToRoles, seedDefaultRoles, subscribeToExCoreMembers } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/authHeaders";
-import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, roleLabel, withBuiltIns, sortMembersByRole } from "@/lib/roles";
+import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, EX_CORE_ROLE, roleLabel, withBuiltIns, sortMembersByRole } from "@/lib/roles";
+import type { ExCoreMember } from "@/lib/excore";
 import { normalizeEmail } from "@/lib/normalizeEmail";
 import RolesManager from "@/components/admin/RolesManager";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Shield, Trash2, User, Users, Tag, Pencil, Search } from "lucide-react";
+import { Check, X, Shield, Trash2, User, Users, Tag, Pencil, Search, ChevronDown, History, Undo2 } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 import PageHeader from "@/components/ui/PageHeader";
 import { PasswordStrengthIndicator } from "@/components/ui/PasswordStrengthIndicator";
@@ -22,6 +23,13 @@ export default function AdminUsersPage() {
     const [roles, setRoles] = useState<ClubRole[]>(withBuiltIns([]));
     // Set when a role change needs someone moved out of a full role first.
     const [replacing, setReplacing] = useState<{ target: AdminProfile; role: ClubRole; holders: AdminProfile[]; replacedUid: string } | null>(null);
+
+    // Collapsible sections: the Active Team and the Ex-Core accounts can both
+    // be folded away to keep the page short.
+    const [activeOpen, setActiveOpen] = useState(true);
+    const [exCoreOpen, setExCoreOpen] = useState(true);
+    // Linked Ex-Core profiles, used to map a moved account back to its profile.
+    const [exCoreMembers, setExCoreMembers] = useState<ExCoreMember[]>([]);
 
     // New State for Create Modal
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -89,7 +97,8 @@ export default function AdminUsersPage() {
     };
 
     // The CTO role is handed over from the Doomsday console, never assigned here.
-    const assignableRoles = roles.filter(r => r.id !== CTO_ROLE.id);
+    // Ex-Core Member is fixed in code and only handed out by the Ex-Core flows.
+    const assignableRoles = roles.filter(r => r.id !== CTO_ROLE.id && r.id !== EX_CORE_ROLE.id);
     const nameOf = (a: AdminProfile) => a.displayName || a.email;
     const holdersOf = (roleId: string) => admins.filter(a => a.role === roleId && a.status === "active");
 
@@ -123,11 +132,13 @@ export default function AdminUsersPage() {
         });
 
         const unsubscribeRoles = subscribeToRoles(setRoles);
+        const unsubscribeExCore = subscribeToExCoreMembers(setExCoreMembers);
 
         return () => {
             unsubscribeAdmins();
             unsubscribePending();
             unsubscribeRoles();
+            unsubscribeExCore();
         };
     }, []);
 
@@ -233,6 +244,47 @@ export default function AdminUsersPage() {
         } finally {
             setReplacing(null);
         }
+    };
+
+    // Returns a moved account to the Active Team: removes its Ex-Core profile
+    // (unlinking the profile first would leave the account hidden), so the
+    // server restores exCoreAt removal and the normal club role.
+    const handleReturnToTeam = async (admin: AdminProfile) => {
+        const memberDoc = exCoreMembers.find(m => m.linkedUserId === admin.uid);
+        const ok = confirm(
+            memberDoc
+                ? `Return ${nameOf(admin)} to the Active Team?\n\nTheir Ex-Core profile will be removed and their account will get back its normal role and permissions.`
+                : `Return ${nameOf(admin)} to the Active Team? Their account will get back its normal role and permissions.`,
+        );
+        if (!ok) return;
+        try {
+            const headers = await getAuthHeaders();
+            if (!headers) throw new Error("Sign in again.");
+            const res = memberDoc
+                ? await fetch("/api/ex-core", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json", ...headers },
+                    body: JSON.stringify({ id: memberDoc.id }),
+                })
+                : await fetch("/api/ex-core", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", ...headers },
+                    body: JSON.stringify({ restoreAdminUid: admin.uid }),
+                });
+            if (!res.ok) {
+                const json = await res.json().catch(() => ({}));
+                throw new Error(json.error || `Request failed (${res.status}).`);
+            }
+            toast.success(`${nameOf(admin)} is back on the Active Team.`);
+        } catch (e: any) {
+            console.error(e);
+            toast.error("Failed: " + (e?.message || "unknown error"));
+        }
+    };
+
+    const formatTimestamp = (value: any) => {
+        const d = value?.toDate ? value.toDate() : value?.seconds ? new Date(value.seconds * 1000) : null;
+        return d ? d.toLocaleDateString() : "";
     };
 
     // Helper to calculate tenure end
@@ -396,8 +448,16 @@ export default function AdminUsersPage() {
             {/* Active Admins */}
             <div>
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                    <h2 className="text-xl font-bold text-blue-500 flex items-center gap-2">
-                        <User size={20} /> Active Team
+                    <h2 className="text-xl font-bold text-blue-500">
+                        <button
+                            type="button"
+                            onClick={() => setActiveOpen(o => !o)}
+                            aria-expanded={activeOpen}
+                            className="flex items-center gap-2 hover:text-blue-400 transition-colors cursor-pointer"
+                        >
+                            <User size={20} /> Active Team
+                            <ChevronDown size={16} className={`transition-transform ${activeOpen ? "" : "-rotate-90"}`} aria-hidden="true" />
+                        </button>
                     </h2>
                     {/* Search by nickname or email — either identifier finds the admin. */}
                     <div className="relative">
@@ -413,6 +473,7 @@ export default function AdminUsersPage() {
                     </div>
                 </div>
 
+                {activeOpen && (<>
                 {/* Role Key */}
                 <div className="mb-4 text-xs text-gray-400 flex gap-4">
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> CTO can edit/remove members</span>
@@ -421,7 +482,10 @@ export default function AdminUsersPage() {
                 <div className="space-y-4">
                     {/* Nickname/email search + canonical role-precedence ordering, shared with Team and About. */}
                     {(() => {
-                        const active = sortMembersByRole(admins.filter(u => u.status === "active" || u.status === "onboarding"), roles);
+                        const active = sortMembersByRole(admins.filter(u =>
+                            !u.exCoreAt &&
+                            u.role !== EX_CORE_ROLE.id &&
+                            (u.status === "active" || u.status === "onboarding")), roles);
                         const matching = adminSearch
                             ? active.filter(a =>
                                 (a.nickname && a.nickname.toLowerCase().includes(adminSearch)) ||
@@ -500,10 +564,82 @@ export default function AdminUsersPage() {
                         </div>
                         ));
                     })()}
-                    {admins.filter(u => u.status === "active" || u.status === "onboarding").length === 0 && (
+                    {admins.filter(u =>
+                        !u.exCoreAt &&
+                        u.role !== EX_CORE_ROLE.id &&
+                        (u.status === "active" || u.status === "onboarding")).length === 0 && (
                         <p className="text-gray-500">No active admins found.</p>
                     )}
                 </div>
+                </>
+                )}
+            </div>
+
+            {/* Ex-Core accounts — admin accounts that were moved under Ex-Core.
+                They live here instead of the Active Team so their (empty)
+                permission set is easy to find and manage. The role is fixed:
+                “Ex-Core Member” grants nothing, permanently. */}
+            <div className="mt-12">
+                <h2 className="text-xl font-bold text-purple-500">
+                    <button
+                        type="button"
+                        onClick={() => setExCoreOpen(o => !o)}
+                        aria-expanded={exCoreOpen}
+                        className="flex items-center gap-2 hover:text-purple-400 transition-colors cursor-pointer"
+                    >
+                        <History size={20} /> Ex-Core Accounts
+                        <ChevronDown size={16} className={`transition-transform ${exCoreOpen ? "" : "-rotate-90"}`} aria-hidden="true" />
+                    </button>
+                </h2>
+                <p className="text-xs text-gray-500 mt-1 mb-4 max-w-2xl">
+                    Former team members whose account now lives under Ex-Core. Their role is “Ex-Core Member” and grants
+                    no permissions; add new Ex-Core members from the Ex-Core page.
+                </p>
+
+                {exCoreOpen && (
+                    <div className="space-y-4">
+                        {(() => {
+                            const exCoreList = sortMembersByRole(
+                                admins.filter(u => u.role === EX_CORE_ROLE.id || u.exCoreAt),
+                                roles,
+                            );
+                            if (exCoreList.length === 0) {
+                                return <p className="text-gray-500 italic">No Ex-Core accounts.</p>;
+                            }
+                            return exCoreList.map(admin => (
+                                <div key={admin.uid} className="bg-white/5 border border-purple-500/20 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div>
+                                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                                            <p className="font-bold">{admin.email}</p>
+                                            {admin.nickname && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-pink-500/15 text-pink-300 flex items-center gap-1">
+                                                    <Tag size={10} /> {admin.nickname}
+                                                </span>
+                                            )}
+                                            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+                                                Ex-Core Member
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-gray-400">
+                                            UID: {admin.uid.slice(0, 8)}…
+                                            {admin.exCoreAt ? ` · moved to Ex-Core${formatTimestamp(admin.exCoreAt) ? ` on ${formatTimestamp(admin.exCoreAt)}` : ""}` : ""}
+                                        </p>
+                                    </div>
+
+                                    {profile?.role === "CTO" && (
+                                        <button
+                                            onClick={() => handleReturnToTeam(admin)}
+                                            className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 hover:text-white hover:border-blue-500/40 flex items-center gap-1.5 transition-colors self-end sm:self-auto"
+                                            title="Remove their Ex-Core profile and restore their normal role and permissions"
+                                        >
+                                            <Undo2 size={14} /> Return to Active Team
+                                        </button>
+                                    )}
+                                </div>
+                            ));
+                        })()}
+                    </div>
+                )}
             </div>
 
             <RolesManager

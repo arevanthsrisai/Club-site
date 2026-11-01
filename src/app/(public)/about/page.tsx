@@ -23,7 +23,8 @@ export default async function AboutPage() {
         const snap = await db.collection('admins').where('status', '==', 'active').get();
         team = snap.docs
             .map(d => d.data() as AdminProfile)
-            .filter(u => u.role !== 'pending')
+            // exCoreAt marks accounts handed off to the Ex-Core page.
+            .filter(u => u.role !== 'pending' && !u.exCoreAt)
             .map(({ uid, email, role, status, displayName, photoURL, socials }) =>
                 ({ uid, email, role, status, createdAt: null, displayName, photoURL, socials }));
     } catch (error) {

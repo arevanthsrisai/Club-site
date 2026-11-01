@@ -11,7 +11,7 @@ import {
     resolveRolePermissions, isValidPermissionId, permissionsByGroup, permissionSummary,
 } from '../src/lib/permissions.ts';
 import {
-    withBuiltIns, roleIdFromLabel, DEFAULT_ROLES, DEFAULT_ROLE_ID, CTO_ROLE,
+    withBuiltIns, roleIdFromLabel, DEFAULT_ROLES, DEFAULT_ROLE_ID, CTO_ROLE, EX_CORE_ROLE,
 } from '../src/lib/roles.ts';
 import { studentPatchSchema } from '../src/lib/studentFields.ts';
 
@@ -55,6 +55,12 @@ test('CTO always resolves to every permission (protected invariant)', () => {
     assert.deepStrictEqual([...perms].sort(), [...ALL_PERMISSION_IDS].sort());
     // Even if a corrupted document tries to subtract them.
     assert.strictEqual(resolveRolePermissions({ id: 'CTO', permissions: [] }).length, ALL_PERMISSION_IDS.length);
+});
+
+test('Ex-Core Member always resolves to no permissions (protected invariant)', () => {
+    // Even if a corrupted document tries to grant them.
+    const perms = resolveRolePermissions({ id: 'ExCoreMember', permissions: [...ALL_PERMISSION_IDS] });
+    assert.deepStrictEqual(perms, []);
 });
 
 test('legacy role without a permissions array keeps the pre-catalog authority', () => {
@@ -123,6 +129,16 @@ test('Activator default role is unlimited and survives every build', () => {
     const activator = roles.find(r => r.id === DEFAULT_ROLE_ID);
     assert.ok(activator);
     assert.strictEqual(activator.limit, null, 'default role must accept unlimited holders');
+});
+
+test('Ex-Core Member role is fixed in code and always present', () => {
+    const roles = withBuiltIns(DEFAULT_ROLES);
+    const exCore = roles.find(r => r.id === EX_CORE_ROLE.id);
+    assert.ok(exCore, 'Ex-Core Member role must survive every build');
+    assert.strictEqual(exCore.permissions?.length, 0);
+    assert.strictEqual(exCore.limit, null);
+    // Not stored in DEFAULT_ROLES, so it is added by withBuiltIns rather than seeded.
+    assert.ok(!DEFAULT_ROLES.some(r => r.id === EX_CORE_ROLE.id), 'kept out of seeded defaults');
 });
 
 test('roleIdFromLabel sanitizes arbitrary role names', () => {

@@ -5,6 +5,7 @@ export * from "@/services/admin";
 export * from "@/services/alumni";
 export * from "@/services/audit";
 export * from "@/services/events";
+export * from "@/services/excore";
 export * from "@/services/gallery";
 export * from "@/services/invitations";
 export * from "@/services/messages";

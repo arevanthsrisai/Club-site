@@ -1,7 +1,7 @@
 import { verifyAuthToken } from "./serverAuth";
 import { getAdminFirestore } from "./firebaseAdmin";
 import { ALL_PERMISSION_IDS, LEGACY_ADMIN_PERMISSION_IDS, isValidPermissionId } from "./permissions";
-import { DEFAULT_ROLES, CTO_ROLE } from "./roles";
+import { DEFAULT_ROLES, CTO_ROLE, EX_CORE_ROLE } from "./roles";
 
 /**
  * Server-enforced authorization context for admin API routes.
@@ -56,6 +56,10 @@ export async function getAdminContext(request: Request): Promise<ServerAuthConte
         let permissions: string[] = [];
         if (isCTO) {
             permissions = [...ALL_PERMISSION_IDS];
+        } else if (role === EX_CORE_ROLE.id) {
+            // Ex-Core accounts hold no permissions, period. Fixed in code —
+            // a stale or missing Firestore copy can never widen them.
+            permissions = [];
         } else {
             try {
                 const roleDoc = await db.collection("club_roles").doc(role).get();

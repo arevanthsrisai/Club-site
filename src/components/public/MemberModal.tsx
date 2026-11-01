@@ -3,19 +3,14 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AdminProfile } from "@/types";
 import { ClubRole, roleLabel } from "@/lib/roles";
-import { Shield, Briefcase, GraduationCap, Coins, Terminal, Zap, Crown, Linkedin, Github, Instagram, X, Calendar, User } from "lucide-react";
+import { academicYearLabel } from "@/lib/excore";
+import { safeHttpUrl } from "@/lib/publicUrl";
+import { Shield, Briefcase, GraduationCap, Coins, Terminal, Zap, Crown, Linkedin, Github, Instagram, X, Calendar, User, History } from "lucide-react";
 import Image from "next/image";
 
-/** Stored URLs become links only when they are real http(s) URLs. */
-export function safeHttpUrl(raw: string | undefined): string | null {
-    if (!raw) return null;
-    try {
-        const url = new URL(raw);
-        return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
-    } catch {
-        return null;
-    }
-}
+// Re-exported for the components that imported it from this module before it
+// moved to /lib/publicUrl (which the server API routes also use).
+export { safeHttpUrl };
 
 export function RoleIcon({ role, className = "" }: { role: string; className?: string }) {
     const icon = {
@@ -36,6 +31,13 @@ interface MemberModalProps {
     onClose: () => void;
     /** Public renders hide internal-only fields (status, join date, role icons). */
     publicView?: boolean;
+    /** When present the modal shows Ex-Core data: role history, batch, bio —
+     *  and hides the internal admin-profile fields entirely. */
+    exCore?: {
+        bio?: string;
+        memberType: "core" | "activator";
+        roleHistory: { year: number; role: string }[];
+    } | null;
 }
 
 /**
@@ -44,7 +46,7 @@ interface MemberModalProps {
  * (Core Team, Activators, and any other card the site shows). Must stay one
  * design; do not fork it per-page.
  */
-export default function MemberModal({ member, roles, onClose, publicView = false }: MemberModalProps) {
+export default function MemberModal({ member, roles, onClose, publicView = false, exCore = null }: MemberModalProps) {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     // Focus is moved into the dialog on open and returned to the opener on close.
     const restoreRef = useRef<HTMLElement | null>(null);
@@ -110,11 +112,63 @@ export default function MemberModal({ member, roles, onClose, publicView = false
                         </div>
                         <h2 id="member-modal-name" className="text-2xl font-bold text-white mb-1 break-words">{member.displayName || member.email}</h2>
                         <span className="text-blue-400 text-sm font-mono uppercase tracking-wider bg-blue-500/10 px-3 py-1 rounded-full break-words max-w-full text-center">
-                            {roleLabel(roles, member.role)}
+                            {exCore
+                                ? (exCore.memberType === "activator" ? "Activator" : "Ex-Core")
+                                : roleLabel(roles, member.role)}
                         </span>
                     </div>
 
-                    {/* Details — public view never exposes internal admin fields. */}
+                    {/* Ex-Core view: bio + multi-year role history, newest first. */}
+                    {exCore ? (
+                        <div className="p-6 md:p-8 space-y-6">
+                            {exCore.bio && (
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-400 mb-3 flex items-center gap-2">
+                                        <User size={18} aria-hidden="true" /> About
+                                    </h3>
+                                    <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-line">{exCore.bio}</p>
+                                </div>
+                            )}
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-400 mb-3 flex items-center gap-2">
+                                    <History size={18} aria-hidden="true" /> Role history
+                                </h3>
+                                {exCore.roleHistory.length === 0 ? (
+                                    <p className="text-gray-600 text-sm italic">No role history recorded.</p>
+                                ) : (
+                                    <ul className="space-y-2">
+                                        {exCore.roleHistory.map((e, i) => (
+                                            <li key={i} className="text-sm text-gray-200 flex items-baseline gap-3">
+                                                <span className="text-gray-500 font-mono shrink-0">{academicYearLabel(e.year)}</span>
+                                                <span className="break-words">{e.role}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-400 mb-3 flex items-center gap-2">
+                                    <Shield size={18} aria-hidden="true" /> Connect
+                                </h3>
+                                <div className="flex gap-3 flex-wrap">
+                                    {socials.length === 0 && (
+                                        <span className="text-gray-600 text-sm italic">No public profiles linked.</span>
+                                    )}
+                                    {socials.map(s => (
+                                        <a
+                                            key={s.label}
+                                            href={s.href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium text-sm focus-visible:ring-2 focus-visible:ring-blue-400 ${s.cls}`}
+                                        >
+                                            {s.icon} {s.label}
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
                     <div className="p-6 md:p-8 space-y-6">
                         <div>
                             <h3 className="text-lg font-bold text-gray-400 mb-3 flex items-center gap-2">
@@ -180,6 +234,7 @@ export default function MemberModal({ member, roles, onClose, publicView = false
                             </div>
                         </div>
                     </div>
+                    )}
                 </div>
             </div>
         </div>

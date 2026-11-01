@@ -28,9 +28,10 @@ export default function TeamPage() {
     }, []);
 
     // Canonical ordering shared with /about: role precedence, then stable
-    // member order inside each role.
+    // member order inside each role. Accounts the CTO moved into Ex-Core
+    // (exCoreAt set) are excluded, mirroring the public About page.
     const members = sortMembersByRole(
-        admins.filter(u => u.status === "active" && u.role !== "pending" && u.role !== "admin"),
+        admins.filter(u => u.status === "active" && u.role !== "pending" && u.role !== "admin" && !u.exCoreAt),
         roles,
     );
 
