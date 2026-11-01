@@ -145,7 +145,18 @@ export async function updateAdminProfileData(uid: string, data: Partial<AdminPro
 }
 
 export async function deleteAdmin(uid: string) {
-    await deleteUserData(uid);
+    const headers = await getAuthHeaders();
+    if (!headers) throw new Error("Sign in again.");
+
+    const res = await fetch(`/api/admin/delete-admin?uid=${encodeURIComponent(uid)}`, {
+        method: "DELETE",
+        headers: { ...headers },
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(json.error || `Revoke failed (${res.status}).`);
+    }
 }
 
 // --- Doomsday (CTO Transfer) ---
@@ -298,9 +309,8 @@ export async function purgeEventData(eventId: string) {
     await batch.commit();
 }
 
-// --- Direct User Creation (Secondary App Pattern) ---
-import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+// --- Direct User Creation (server-side via Firebase Admin SDK) ---
+import { getAuthHeaders } from "@/lib/authHeaders";
 
 export async function createAdminDirectly(email: string, pass: string, role: string, actorUid?: string, actorName?: string) {
     const normalized = normalizeIncomingEmail(email);
@@ -308,56 +318,24 @@ export async function createAdminDirectly(email: string, pass: string, role: str
         throw new Error("Password must be at least 8 characters with uppercase, lowercase, a number and a special character.");
     }
 
-    // 0. Check Role Limit First
+    // 0. Check Role Limit First (client-side pre-check; server re-verifies CTO)
     if (!(await checkRoleLimit(role))) {
         throw new Error(`Role limit reached for ${role}. Cannot create.`);
     }
 
-    // 0b. Race-safe duplicate guard before Auth state is mutated
-    await assertEmailNotInUse(normalized);
+    const headers = await getAuthHeaders();
+    if (!headers) throw new Error("Sign in again.");
 
-    // 1. Initialize secondary app with unique name to avoid collisions on concurrent calls
-    const appName = `SecondaryApp_${Date.now()}`;
-    const secondaryApp = initializeApp({
-        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-        storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-        messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-        appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-    }, appName);
+    const res = await fetch("/api/admin/create-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ email: normalized, password: pass, role }),
+    });
 
-    const secondaryAuth = getAuth(secondaryApp);
-
-    try {
-        // 2. Create User in Auth
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, normalized, pass);
-        const user = userCredential.user;
-
-        // 3. Create Admin Profile (Active immediately)
-        await setDoc(doc(db, "admins", user.uid), {
-            uid: user.uid,
-            email: normalized,
-            role,
-            status: "active",
-            createdAt: Timestamp.now(),
-            approvedAt: Timestamp.now()
-        });
-
-        // 4. Log Audit
-        if (actorUid) {
-            await logActivity(actorUid, actorName || "Unknown", "CREATE_ADMIN_DIRECT", { targetUid: user.uid, email, role });
-        }
-
-        // 5. Cleanup
-        await signOut(secondaryAuth);
-        await deleteApp(secondaryApp);
-
-        return user.uid;
-    } catch (error) {
-        // Cleanup on error too
-        await deleteApp(secondaryApp);
-        throw error;
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(json.error || `Create failed (${res.status}).`);
     }
+    return json.uid as string;
 }
 

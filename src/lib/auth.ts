@@ -39,9 +39,20 @@ export async function signIn(email: string, pass: string) {
 
 export async function signUp(email: string, pass: string) {
     const normalized = normalizeIncomingEmail(email);
-    // Race-safe guard: reject duplicates in our own collections before Auth
-    // state is mutated. Auth's own email-already-in-use is a backstop.
-    await assertEmailNotInUse(normalized);
+    // Race-safe duplicate guard is best-effort here: an unauthenticated client
+    // cannot read the admins/users collections (Firestore rules deny it), so we
+    // rely on Firebase Auth's email-already-in-use as the authoritative check.
+    // We still attempt the guard but never let a permission error block signup.
+    try {
+        await assertEmailNotInUse(normalized);
+    } catch (e: any) {
+        const code = e?.code;
+        // Only rethrow genuine duplicate signals, not permission/network errors.
+        if (code === "email-already-in-use" || code === "permission-denied") {
+            // permission-denied means we couldn't verify; let Auth decide.
+            if (code === "email-already-in-use") throw e;
+        }
+    }
     try {
         const userCredential = await createUserWithEmailAndPassword(auth, normalized, pass);
         // Create user profile in Firestore using the normalized address
