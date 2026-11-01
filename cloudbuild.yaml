@@ -24,7 +24,9 @@ steps:
 
   # Push to Artifact Registry
   - name: gcr.io/cloud-builders/docker
-    args: ['push', 'gcr.io/$PROJECT_ID/relu-website']
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/relu-website'
 
   # Deploy to Cloud Run
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -39,22 +41,28 @@ steps:
       - 'us-central1'
       - '--platform'
       - 'managed'
-      - '--set-env-vars'
-      - 'EMAIL_USER=$_EMAIL_USER'
-      # Gmail app password lives in Secret Manager, not env vars
-      - '--set-secrets'
-      - 'EMAIL_PASS=email-pass:latest'
-      # Runtime Firebase Admin SDK credentials (base64-encoded service-account)
-      - '--set-secrets'
-      - 'FIREBASE_ADMIN_KEY=firebase-admin-key:latest'
+
+      # Add/update runtime variables without removing existing ones
+      - '--update-env-vars'
+      - 'EMAIL_USER=$_EMAIL_USER,B2_S3_ENDPOINT=$_B2_S3_ENDPOINT,B2_REGION=$_B2_REGION,B2_BUCKET_NAME=$_B2_BUCKET_NAME,FIRESTORE_DATABASE_ID=$_FIRESTORE_DATABASE_ID'
+
+      # Add/update secrets without removing existing secret mappings
+      - '--update-secrets'
+      - 'EMAIL_PASS=email-pass:latest,FIREBASE_ADMIN_KEY=firebase-admin-key:latest,B2_APPLICATION_KEY_ID=b2-application-key-id:latest,B2_APPLICATION_KEY=b2-application-key:latest'
 
 images:
   - 'gcr.io/$PROJECT_ID/relu-website'
 
 substitutions:
-  # Firestore database ID embedded into the browser bundle by `next build`.
-  # Production uses the (default) database; override per-branch if needed.
-  _NEXT_PUBLIC_FIRESTORE_DATABASE_ID: (default)
+  # Firebase values embedded into the browser bundle during the Docker build
+  _NEXT_PUBLIC_FIRESTORE_DATABASE_ID: '(default)'
+
+  # Cloud Run runtime environment variables
+  _FIRESTORE_DATABASE_ID: '(default)'
+  _EMAIL_USER: 'reluavv@gmail.com'
+  _B2_S3_ENDPOINT: 'https://s3.eu-central-003.backblazeb2.com'
+  _B2_REGION: 'eu-central-003'
+  _B2_BUCKET_NAME: 'reluwebsite'
 
 options:
   logging: CLOUD_LOGGING_ONLY
