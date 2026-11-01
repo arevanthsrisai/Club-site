@@ -149,6 +149,24 @@ test('message workflow: solved flag and reminders are admin-only', async () => {
   await assertFails(updateDoc(doc(fs('onb'), 'messages/m1'), { reminderAt: Timestamp.now() }));
 });
 
+test('ex-core profiles: public read, CTO-only client writes, others blocked', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'ex_core_members/m1'), { name: 'Old', memberType: 'core', exCoreBatch: 2026, displayOrder: 0 });
+  });
+  // Anyone — even signed out — can read the public profiles.
+  await assertSucceeds(getDoc(doc(fs(null), 'ex_core_members/m1')));
+  await assertSucceeds(getDocs(collection(fs('s1'), 'ex_core_members')));
+  // All client writes go through /api/ex-core (Admin SDK). Direct writes are
+  // CTO-only; students and ordinary admins are denied.
+  await assertFails(updateDoc(doc(fs('s1'), 'ex_core_members/m1'), { name: 'Hacked' }));
+  await assertFails(setDoc(doc(fs('s1'), 'ex_core_members/m2'), { name: 'S' }));
+  await assertFails(updateDoc(doc(fs('act'), 'ex_core_members/m1'), { name: 'Hacked' }));
+  await assertFails(deleteDoc(doc(fs('act'), 'ex_core_members/m1')));
+  await assertSucceeds(setDoc(doc(fs('cto'), 'ex_core_members/m2'), { name: 'CTO made me', memberType: 'activator', exCoreBatch: 2027, displayOrder: 0 }));
+  await assertSucceeds(updateDoc(doc(fs('cto'), 'ex_core_members/m1'), { name: 'Old' }));
+  await assertSucceeds(deleteDoc(doc(fs('cto'), 'ex_core_members/m2')));
+});
+
 test('storage writes are admin-only except own avatar', async () => {
   await assertFails(uploadBytes(ref(st('s1'), 'events/x.png'), png, { contentType: 'image/png' }));
   await assertFails(uploadBytes(ref(st('s1'), 'gallery/e1/x.png'), png, { contentType: 'image/png' }));

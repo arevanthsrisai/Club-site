@@ -19,7 +19,8 @@ import {
     X,
     ChevronDown,
     Shield,
-    GraduationCap
+    GraduationCap,
+    History
 } from "lucide-react";
 import NotificationBell from "@/components/public/NotificationBell";
 
@@ -42,6 +43,7 @@ export default function Navbar() {
     const navItems = [
         { name: "Home", path: "/", icon: Home },
         { name: "About", path: "/about", icon: Users },
+        { name: "Ex-Core", path: "/ex-core", icon: History },
         { name: "Events", path: "/events", icon: Megaphone },
         { name: "Alumni", path: "/alumni", icon: GraduationCap },
         // AIML and DSA moved to Resources dropdown

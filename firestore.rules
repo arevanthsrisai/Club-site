@@ -74,6 +74,18 @@ service cloud.firestore {
       allow write: if isCTO();
     }
 
+    // --- Ex-Core members ---
+    // Public profiles only (DOB/roll numbers stay inside admins/). Anyone may
+    // read; only the CTO writes directly from the client. Owner self-edits
+    // (name/photo/bio/socials) and permission-bearing (non-CTO) manager
+    // writes go through the server API (/api/ex-core/*), which authenticates
+    // the caller's token, resolves ownership from the verified identity and
+    // whitelists fields — the Admin SDK path; rules never see it.
+    match /ex_core_members/{document} {
+      allow read: if true;
+      allow create, update, delete: if isCTO();
+    }
+
     // --- Public content: public read, admin write ---
     match /events/{document} {
       allow read: if true;

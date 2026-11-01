@@ -13,6 +13,22 @@ export interface ClubRole {
 export const CTO_ROLE: ClubRole = { id: "CTO", label: "Chief Technology Officer", rank: 7, limit: 1 };
 export const DEFAULT_ROLE_ID = "Activator";
 
+/**
+ * Fixed in code like the CTO role (never stored in Firestore): every admin
+ * account moved into Ex-Core carries this role permanently. It grants
+ * NOTHING — the account exists only so the person can sign in, keep their
+ * Ex-Core profile and edit it via /api/ex-core/self. Restoring an account to
+ * the active team hands it back the default Activator role.
+ */
+export const EX_CORE_ROLE: ClubRole = {
+    id: "ExCoreMember",
+    label: "Ex-Core Member",
+    description: "A former team member whose account now lives under Ex-Core. Holds no permissions.",
+    rank: 98,       // just above Activator, so listing order stays sane anywhere it appears
+    limit: null,
+    permissions: [],          // never grants anything
+};
+
 // Written to Firestore the first time the CTO opens Manage Admins, and used until then.
 export const DEFAULT_ROLES: ClubRole[] = [
     { id: "Faculty", label: "Faculty Coordinator", rank: 1, limit: 2 },
@@ -26,15 +42,19 @@ export const DEFAULT_ROLES: ClubRole[] = [
     { id: DEFAULT_ROLE_ID, label: "Activator", rank: 99, limit: null },
 ];
 
-// Adds the CTO (never stored) and sorts by rank. Falls back to the defaults before the first save.
+/** Code-fixed roles that withBuiltIns always returns, even alongside stored roles. */
+const FIXED_ROLE_IDS = new Set([CTO_ROLE.id, EX_CORE_ROLE.id]);
+
+// Adds the CTO and Ex-Core Member (both fixed in code) and sorts by rank. Falls back to the defaults before the first save.
 export function withBuiltIns(stored: ClubRole[]): ClubRole[] {
-    const roles = stored.length ? stored : DEFAULT_ROLES;
+    const roles = stored.filter(r => !FIXED_ROLE_IDS.has(r.id));
+    const list = roles.length ? roles : DEFAULT_ROLES.filter(r => !FIXED_ROLE_IDS.has(r.id));
     // Preserve the stored CTO role (with its saved rank) if present; otherwise
     // insert the built-in CTO with its default rank. Never pin CTO to a fixed
     // position — the saved rank must be honored.
     const storedCto = stored.find(r => r.id === CTO_ROLE.id);
     const cto = storedCto ? { ...CTO_ROLE, rank: storedCto.rank } : CTO_ROLE;
-    return [...roles.filter(r => r.id !== CTO_ROLE.id), cto].sort((a, b) => a.rank - b.rank);
+    return [...list, cto, EX_CORE_ROLE].sort((a, b) => a.rank - b.rank);
 }
 
 /**

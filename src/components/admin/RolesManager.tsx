@@ -2,12 +2,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { saveRole, deleteRole } from "@/lib/api";
-import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, roleIdFromLabel, reorderRoles } from "@/lib/roles";
+import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, EX_CORE_ROLE, roleIdFromLabel, reorderRoles } from "@/lib/roles";
 import { permissionsByGroup, PERMISSIONS, resolveRolePermissions } from "@/lib/permissions";
 import { useToast } from "@/components/ui/Toast";
 import {
     Plus, Save, Trash2, Layers, GripVertical, X, SlidersHorizontal, Check, Search,
-    Terminal, Zap, Briefcase, ArrowUp, ArrowDown, Shield,
+    Terminal, Zap, Briefcase, ArrowUp, ArrowDown, Shield, History,
 } from "lucide-react";
 
 interface RolesManagerProps {
@@ -25,6 +25,7 @@ const parseLimit = (value: string) => (value.trim() === "" ? null : Math.max(1, 
 
 const roleIcon = (role: ClubRole) => {
     if (role.id === CTO_ROLE.id) return <Terminal size={16} className="text-red-400" />;
+    if (role.id === EX_CORE_ROLE.id) return <History size={16} className="text-purple-400" />;
     if (role.id === DEFAULT_ROLE_ID) return <Zap size={16} className="text-orange-400" />;
     return <Briefcase size={16} className="text-gray-400" />;
 };
@@ -148,7 +149,9 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
     // ---------- Permission editor (inline in detail panel) ----------
     const currentPerms = useMemo(() => selectedRole ? new Set(resolveRolePermissions(selectedRole)) : new Set<string>(), [selectedRole]);
     const searched = permSearch.trim().toLowerCase();
-    const isProtectedRole = false; // CTO role is now editable by the CTO
+    const isExCoreRole = selectedRole?.id === EX_CORE_ROLE.id;
+    // Ex-Core accounts must never gain permissions; the role is fixed in code.
+    const isProtectedRole = isExCoreRole;
 
     const togglePermission = (id: string) => {
         if (!selectedRole) return;
@@ -248,6 +251,9 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                             {role.id === CTO_ROLE.id && (
                                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 shrink-0">protected</span>
                                             )}
+                                            {role.id === EX_CORE_ROLE.id && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 shrink-0">no permissions</span>
+                                            )}
                                         </div>
                                         {role.description && (
                                             <p className="mt-0.5 text-xs text-gray-500 truncate">{role.description}</p>
@@ -343,7 +349,7 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                         </p>
                                     </div>
                                 </div>
-                                {selectedRole.id !== CTO_ROLE.id && selectedRole.id !== DEFAULT_ROLE_ID && (
+                                {selectedRole.id !== CTO_ROLE.id && selectedRole.id !== DEFAULT_ROLE_ID && selectedRole.id !== EX_CORE_ROLE.id && (
                                     <button
                                         type="button"
                                         onClick={() => handleDelete(selectedRole)}
@@ -447,8 +453,8 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                 <div className="space-y-4 max-h-[480px] overflow-y-auto pr-1">
                                     {isProtectedRole ? (
                                         <div className="flex items-center gap-2 text-sm text-gray-400 bg-white/[0.03] border border-white/8 rounded-lg p-3">
-                                            <Shield size={14} className="text-red-400" />
-                                            The CTO role holds every permission. This is a protected system invariant.
+                                            <Shield size={14} className="text-purple-400" />
+                                            Ex-Core accounts hold no permissions. Restoring an account to the Active Team gives it back the default Activator role.
                                         </div>
                                     ) : groupedPerms.length === 0 ? (
                                         <p className="text-xs text-gray-500 text-center py-6">No matching permissions.</p>

@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import {
     LogOut, LayoutDashboard, Calendar, ClipboardList, Users,
     BookOpen, Image as ImageIcon, Shield, Home, Skull, Terminal, MessageSquare,
-    GraduationCap, Settings, Activity
+    GraduationCap, Settings, Activity, History
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -45,6 +45,14 @@ export default function Sidebar() {
                 <NavLink href="/admin/messages" icon={<MessageSquare size={20} />} label="Messages" badge={unresolvedCount > 0 ? unresolvedCount : undefined} />
                 <NavLink href="/admin/alumni" icon={<GraduationCap size={20} />} label="Alumni" />
                 <NavLink href="/admin/logs" icon={<Activity size={20} />} label="Activity Log" />
+
+                {/* Ex-Core manager - CTO only (feature permission: excore.manage) */}
+                {profile?.role === "CTO" && (
+                    <>
+                        <div className="h-px bg-white/10 my-2" />
+                        <NavLink href="/admin/ex-core" icon={<History size={20} />} label="Ex-Core" />
+                    </>
+                )}
 
                 {/* Manage Admins - CTO Only */}
                 {profile?.role === "CTO" && (

@@ -68,6 +68,9 @@ export interface AdminProfile {
         instagram?: string;
         github?: string;
     };
+    /** Set when this admin was moved into Ex-Core (their team tenure ended);
+     *  the About page and the admin team list exclude them from that moment. */
+    exCoreAt?: any;
 }
 
 export interface PendingRegistration {

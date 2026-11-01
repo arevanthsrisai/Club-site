@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
         let resolvedPermissions: string[] = [];
         if (permissions !== undefined && permissions !== null) {
             const permArr = Array.isArray(permissions) ? permissions : [permissions];
-            const validPrefixes = ["students.", "events.", "gallery.", "resources.", "team.", "settings.", "alumni.", "roles."];
+            const validPrefixes = ["students.", "events.", "gallery.", "resources.", "team.", "settings.", "alumni.", "excore.", "roles."];
             for (const p of permArr) {
                 if (typeof p !== "string") continue;
                 if (validPrefixes.some(prefix => p.startsWith(prefix))) {
