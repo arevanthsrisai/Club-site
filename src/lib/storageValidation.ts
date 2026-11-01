@@ -13,7 +13,7 @@
  * legacy keys that were written with a leading slash during the
  * previous migration phase.
  */
-const B2_KEY_RE = /^\/?(gallery|avatars|profiles|team_profiles|resources|event-images|event-covers|resource-thumbnails)\/([\w-]{1,64}\/)?[\w.-]+$/;
+const B2_KEY_RE = /^\/?(alumini|gallery|avatars|profiles|team_profiles|resources|event-images|event-covers|resource-thumbnails)\/([\w-]{1,64}\/)?[\w.-]+$/;
 
 /**
  * Validates that a key belongs to our application's B2 namespace.
