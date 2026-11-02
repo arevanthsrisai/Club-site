@@ -111,6 +111,20 @@ export default function AdminProfilePage() {
 
             await logActivity(user.uid, name, "Updated their profile");
 
+            // If the user is in Ex-Core, sync their profile to ex_core_members
+            if (profile?.exCoreAt) {
+                try {
+                    const res = await fetch("/api/ex-core/self", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+                        body: JSON.stringify({ name, photoURL: newPhotoURL || photo, bio: "", socials: { linkedin, github, instagram} }),
+                    });
+                    if (!res.ok) { console.warn("Failed to sync Ex-Core profile update:", await res.text()); }
+                } catch (e) {
+                    console.warn("Failed to sync Ex-Core profile:", e);
+                }
+            }
+
             setMessage("Profile updated successfully!");
         } catch (error) {
             console.error("Error updating profile:", error);

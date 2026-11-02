@@ -273,10 +273,50 @@ export async function losslesslyOptimize(
     contentType: string,
 ): Promise<{ data: Buffer; contentType: string; ext: string }> {
     const pngLike = contentType === "image/png" || contentType === "image/avif" || contentType === "image/tiff";
-    if (!pngLike) return { data: body, contentType, ext: extFor(contentType) };
+    const isGif = contentType === "image/gif";
+    if (!pngLike && !isGif) return { data: body, contentType, ext: extFor(contentType) };
 
     try {
         const sharp = (await import("sharp")).default;
+        if (isGif) {
+            // Detect animated GIFs (multi-frame). Single-frame GIFs are left untouched.
+            const meta = await sharp(body).metadata();
+            const animated = (meta.pages ?? 1) > 1;
+            if (!animated) return { data: body, contentType, ext: extFor(contentType) };
+
+            // Preserve animation, frame timing, frame count and looping.
+            // Prefer animated WebP when it yields a meaningful size reduction.
+            const loop = meta.loop ?? 0;
+            const delays = meta.delay;
+
+            // 1) Lossless animated WebP.
+            try {
+                const lossless = await sharp(body, { animated: true })
+                    .webp({ lossless: true, effort: 4, loop, delay: delays })
+                    .toBuffer();
+                if (lossless.length > 0 && lossless.length < body.length) {
+                    return { data: lossless, contentType: "image/webp", ext: extFor("image/webp") };
+                }
+            } catch (e) {
+                console.warn("Lossless animated WebP skipped:", e);
+            }
+
+            // 2) Lossy animated WebP (quality 80) if it beats the original.
+            try {
+                const lossy = await sharp(body, { animated: true })
+                    .webp({ quality: 80, effort: 4, loop, delay: delays })
+                    .toBuffer();
+                if (lossy.length > 0 && lossy.length < body.length) {
+                    return { data: lossy, contentType: "image/webp", ext: extFor("image/webp") };
+                }
+            } catch (e) {
+                console.warn("Lossy animated WebP skipped:", e);
+            }
+
+            // Fallback: original GIF preserved.
+            return { data: body, contentType, ext: extFor(contentType) };
+        }
+
         const lossless = await sharp(body)
             .webp({ lossless: true, effort: 4 })
             .toBuffer();

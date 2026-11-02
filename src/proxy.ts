@@ -13,7 +13,7 @@ export function proxy(request: NextRequest) {
         // React style attributes need 'unsafe-inline'; a nonce here would switch it off.
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
-        "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://lh3.googleusercontent.com https://images.unsplash.com https://www.google-analytics.com https://www.googletagmanager.com",
+        "img-src 'self' data: blob: https://relu-website-service-735268143198.us-central1.run.app https://firebasestorage.googleapis.com https://lh3.googleusercontent.com https://images.unsplash.com https://www.google-analytics.com https://www.googletagmanager.com",
         "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebase.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
         `frame-src https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}`,
         "object-src 'none'",
