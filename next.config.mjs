@@ -1,6 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: "standalone",
+    // Keep sharp as a runtime dependency (not bundled) so its native binaries
+    // are traced/copied verbatim into the standalone output. Bundling sharp
+    // drops the platform-specific libvips DLLs, breaking dlopen on Windows.
+    serverExternalPackages: ["sharp"],
+    outputFileTracingIncludes: {
+        "*": [
+            "./node_modules/sharp/**/*",
+            "./node_modules/@img/**/*",
+        ],
+    },
     poweredByHeader: false,
     // Stop next dev from writing AGENTS.md into the repo.
     agentRules: false,

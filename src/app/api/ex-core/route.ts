@@ -5,7 +5,7 @@ import {
     normalizeYear, sanitizeRoleHistory, ExCoreMemberType,
 } from "@/lib/excore";
 import { DEFAULT_ROLE_ID, EX_CORE_ROLE } from "@/lib/roles";
-import { safeHttpUrl } from "@/lib/publicUrl";
+import { safeHttpUrl, safePhotoUrl } from "@/lib/publicUrl";
 import { Timestamp, FieldValue } from "firebase-admin/firestore";
 
 /**
@@ -224,7 +224,7 @@ export async function PATCH(request: NextRequest) {
             update.bio = String(body.bio).slice(0, 2000);
         }
         if (body?.photoURL !== undefined) {
-            update.photoURL = safeHttpUrl(String(body.photoURL || ""));
+            update.photoURL = safePhotoUrl(String(body.photoURL || ""));
         }
         if (body?.socials !== undefined) {
             const s = body.socials ?? {};

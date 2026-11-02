@@ -10,3 +10,20 @@ export function safeHttpUrl(raw: string | undefined | null): string | null {
         return null;
     }
 }
+
+/**
+ * Photo/media URLs may be either absolute http(s) URLs or same-origin
+ * relative delivery paths (e.g. "/api/gallery/media?key=..."). The media
+ * upload route returns a relative path, so photo fields must accept it.
+ */
+export function safePhotoUrl(raw: string | undefined | null): string | null {
+    if (!raw) return null;
+    const value = String(raw).trim();
+    if (!value) return null;
+    if (value.startsWith("/")) {
+        // Same-origin relative path: reject anything that could escape the origin.
+        if (value.includes("://") || value.includes("\\")) return null;
+        return value;
+    }
+    return safeHttpUrl(value);
+}

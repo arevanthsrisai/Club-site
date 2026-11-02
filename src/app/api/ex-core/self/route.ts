@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminContext, unauthorized } from "@/lib/serverAuthz";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
-import { safeHttpUrl } from "@/lib/publicUrl";
+import { safeHttpUrl, safePhotoUrl } from "@/lib/publicUrl";
 
 /**
  * Owner self-edit for one's own Ex-Core profile.
@@ -59,7 +59,7 @@ export async function PATCH(request: NextRequest) {
             update.bio = String(body.bio ?? "").slice(0, 2000);
         }
         if (fields.includes("photoURL")) {
-            update.photoURL = safeHttpUrl(String(body.photoURL || ""));
+            update.photoURL = safePhotoUrl(String(body.photoURL || ""));
         }
         if (fields.includes("socials")) {
             const s = (body.socials ?? {}) as Record<string, unknown>;

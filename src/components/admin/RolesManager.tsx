@@ -219,18 +219,18 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                             return (
                                 <li
                                     key={role.id}
-                                    draggable={canReorder}
-                                    onDragStart={(e) => { if (!canReorder) { e.preventDefault(); return; } setDragId(role.id); }}
-                                    onDragOver={(e) => { if (canReorder && dragId) { e.preventDefault(); setDragOverId(role.id); } }}
+                                    draggable={canReorder && role.id !== EX_CORE_ROLE.id}
+                                    onDragStart={(e) => { if (!canReorder || role.id === EX_CORE_ROLE.id) { e.preventDefault(); return; } setDragId(role.id); }}
+                                    onDragOver={(e) => { if (canReorder && dragId && role.id !== EX_CORE_ROLE.id) { e.preventDefault(); setDragOverId(role.id); } }}
                                     onDragLeave={() => setDragOverId(prev => (prev === role.id ? null : prev))}
-                                    onDrop={(e) => { e.preventDefault(); handleDrop(role.id); }}
+                                    onDrop={(e) => { e.preventDefault(); if (role.id !== EX_CORE_ROLE.id) handleDrop(role.id); }}
                                     onDragEnd={() => { setDragId(null); setDragOverId(null); }}
                                     className={`group flex items-stretch rounded-lg border transition-all
                                         ${isSelected ? "border-purple-500/40 bg-purple-500/5" : "border-white/8 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04]"}
                                         ${isDragged ? "opacity-40" : ""}
                                         ${isDropTarget ? "ring-2 ring-purple-400/60" : ""}`}
                                 >
-                                    {canReorder && (
+                                    {canReorder && role.id !== EX_CORE_ROLE.id && (
                                         <span
                                             className="flex items-center justify-center w-8 text-gray-600 cursor-grab active:cursor-grabbing border-r border-white/5"
                                             title="Drag to reorder"
@@ -263,7 +263,7 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                             <span>{perms} perms</span>
                                         </div>
                                     </button>
-                                    {canReorder && (
+                                    {canReorder && role.id !== EX_CORE_ROLE.id && (
                                         <div className="flex flex-col justify-center gap-0.5 pr-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                                             <button
                                                 type="button"

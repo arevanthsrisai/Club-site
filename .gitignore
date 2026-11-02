@@ -50,3 +50,6 @@ prod-server.log
 
 # verification screenshots (agent-generated, review-only artifacts)
 /screenshots/
+
+.cloud-attachments
+.next-dev.log

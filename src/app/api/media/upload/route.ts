@@ -50,7 +50,9 @@ export async function POST(request: Request) {
         // Authentication + authorization (server-side; never client-checked).
         const ctx = await getAdminContext(request);
         if (!ctx) return unauthorized();
-        if (!hasPermission(ctx, 'gallery.manage')) return forbidden('gallery.manage');
+        // Ex-Core members may upload to profiles/avatars only (for their own public profile).
+        const isExCore = ctx.role === 'ExCoreMember';
+        if (!hasPermission(ctx, 'gallery.manage') && !isExCore) return forbidden('gallery.manage');
 
         const config = getStorageConfig();
         if (!config) {
@@ -61,6 +63,11 @@ export async function POST(request: Request) {
         const data = await request.formData();
         const file = data.get('file');
         const path = typeof data.get('path') === 'string' ? (data.get('path') as string) : '';
+
+        // Ex-Core members may only upload to profiles/avatars (their own profile picture).
+        if (ctx.role === 'ExCoreMember' && path !== 'profiles' && path !== 'avatars') {
+            return NextResponse.json({ error: 'Ex-Core accounts may only upload to profiles/avatars.' }, { status: 403 });
+        }
 
         if (!(file instanceof File)) {
             return NextResponse.json({ error: 'No file provided' }, { status: 400 });

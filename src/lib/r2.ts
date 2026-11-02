@@ -132,10 +132,39 @@ export async function losslesslyOptimize(
     contentType: string,
 ): Promise<{ data: Buffer; contentType: string; ext: string }> {
     const pngLike = contentType === "image/png" || contentType === "image/avif" || contentType === "image/tiff";
-    if (!pngLike) return { data: body, contentType, ext: extFor(contentType) };
+    const isGif = contentType === "image/gif";
+    if (!pngLike && !isGif) return { data: body, contentType, ext: extFor(contentType) };
 
     try {
         const sharp = (await import("sharp")).default;
+        if (isGif) {
+            const meta = await sharp(body).metadata();
+            const animated = (meta.pages ?? 1) > 1;
+            if (!animated) return { data: body, contentType, ext: extFor(contentType) };
+            const loop = meta.loop ?? 0;
+            const delays = meta.delay;
+            try {
+                const lossless = await sharp(body, { animated: true })
+                    .webp({ lossless: true, effort: 4, loop, delay: delays })
+                    .toBuffer();
+                if (lossless.length > 0 && lossless.length < body.length) {
+                    return { data: lossless, contentType: "image/webp", ext: extFor("image/webp") };
+                }
+            } catch (e) {
+                console.warn("Lossless animated WebP skipped:", e);
+            }
+            try {
+                const lossy = await sharp(body, { animated: true })
+                    .webp({ quality: 80, effort: 4, loop, delay: delays })
+                    .toBuffer();
+                if (lossy.length > 0 && lossy.length < body.length) {
+                    return { data: lossy, contentType: "image/webp", ext: extFor("image/webp") };
+                }
+            } catch (e) {
+                console.warn("Lossy animated WebP skipped:", e);
+            }
+            return { data: body, contentType, ext: extFor(contentType) };
+        }
         const lossless = await sharp(body)
             .webp({ lossless: true, effort: 4 })
             .toBuffer();
@@ -143,7 +172,6 @@ export async function losslesslyOptimize(
             return { data: lossless, contentType: "image/webp", ext: extFor("image/webp") };
         }
     } catch (error) {
-        // Recoding is an optimization, never a gate: fall back to the original bytes on any failure.
         console.warn("Lossless WebP optimization skipped:", error);
     }
     return { data: body, contentType, ext: extFor(contentType) };
