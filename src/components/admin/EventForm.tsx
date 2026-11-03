@@ -147,7 +147,9 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
                     <label htmlFor="event-date" className="block text-sm font-bold text-gray-400 mb-2">Date <span aria-hidden="true" className="text-blue-400">*</span></label>
-                    <div className="relative">
+                    <div className="relative cursor-pointer" onClick={e => {
+                        e.currentTarget.querySelector<HTMLInputElement>('input[type="date"]')?.showPicker();
+                    }}>
                         <input
                             id="event-date"
                             type="date"
@@ -158,7 +160,17 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
                             aria-invalid={!!dateError}
                             aria-describedby={dateError ? "event-date-error" : undefined}
                         />
-                        <Calendar className="absolute left-3 top-3.5 text-gray-500" size={16} aria-hidden="true" />
+                        <button
+                            type="button"
+                            onClick={e => {
+                            e.stopPropagation();
+                            e.currentTarget.parentElement?.querySelector<HTMLInputElement>('input[type="date"]')?.showPicker();
+                            }}
+                            aria-label="Open date picker"
+                            className="absolute left-3 top-3.5 p-1 text-gray-500 hover:text-white transition-colors"
+                        >
+                            <Calendar size={16} aria-hidden="true" />
+                        </button>
                     </div>
                     {dateError && (
                         <p id="event-date-error" role="alert" className="text-red-400 text-xs mt-1.5">{dateError}</p>

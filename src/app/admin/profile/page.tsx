@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth, signOut } from "@/lib/auth";
 import { updateAdminProfileData, logActivity, deleteFileByUrl } from "@/lib/api";
 import { uploadMedia } from "@/lib/mediaUpload";
@@ -12,6 +12,21 @@ import { LogOut, Save, Camera, User, Clock, ShieldCheck, Lock, Github, Linkedin,
 import PageHeader from "@/components/ui/PageHeader";
 import { auth } from "@/lib/firebase"; // Direct auth import needed for re-auth if not fully exposed in lib/auth
 import Image from "next/image";
+
+/**
+ * Roll number format for admins: AV.<2 letters>.U4<3 letters><5 digits>
+ * Example: AV.SC.U4CSE26001
+ * Admins may use any email so they type their roll number manually.
+ */
+const ROLLNO_REGEX = /^AV\.[A-Z]{2}\.U4[A-Z]{3}[0-9]{5}$/;
+
+/** Convert YYYY-MM-DD → DD-MM-YYYY for display (input value stays YYYY-MM-DD). */
+function formatDob(date: string | null): string {
+    if (!date) return '';
+    const parts = date.split('-');
+    if (parts.length !== 3) return date;
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+}
 
 export default function AdminProfilePage() {
     const { user, profile } = useAuth();
@@ -39,6 +54,7 @@ export default function AdminProfilePage() {
     const [confirmPass, setConfirmPass] = useState("");
     const [passLoading, setPassLoading] = useState(false);
     const [passMessage, setPassMessage] = useState("");
+    const dobInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (profile) {
@@ -77,6 +93,11 @@ export default function AdminProfilePage() {
         setLoading(true);
         setMessage("");
         setProgress(0);
+
+        if (!ROLLNO_REGEX.test(rollNo)) {
+            setMessage("Roll number must be 3–20 alphanumeric characters.");
+            return;
+        }
 
         try {
             let newPhotoURL = photo;
@@ -295,17 +316,27 @@ export default function AdminProfilePage() {
                                             className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-10 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                             value={rollNo}
                                             onChange={(e) => setRollNo(e.target.value)}
-                                            placeholder="e.g. 2100A0..."
+                                            placeholder="AV.SC.U4CSE26001"
                                         />
                                     </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold text-gray-400 mb-2">Date of Birth</label>
-                                    <div className="relative">
-                                        <Calendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <div className="relative w-full">
+                                        <button
+                                            type="button"
+                                            onClick={() => dobInputRef.current?.showPicker()}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-10 text-left flex items-center gap-3 hover:bg-black/60 transition-colors"
+                                        >
+                                            <Calendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                            <span className={dob ? 'text-white' : 'text-gray-500'}>
+                                                {formatDob(dob) || 'Pick a date'}
+                                            </span>
+                                        </button>
                                         <input
+                                            ref={dobInputRef}
                                             type="date"
-                                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-10 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 color-scheme-dark"
+                                            className="sr-only"
                                             value={dob}
                                             onChange={(e) => setDob(e.target.value)}
                                         />

@@ -5,7 +5,7 @@ import type { ExCoreMember } from '@/lib/excore';
 
 export const metadata: Metadata = {
     title: 'Ex-Core',
-    description: 'Former ReLU Core members and Activators, organized by the batch they stepped down in.',
+    description: 'Former ReLU Core members and Activators, by the tenure recorded in their role history.',
 };
 
 export const revalidate = 0;
@@ -21,11 +21,11 @@ function toPlainMember(doc: { id: string; data: () => Record<string, unknown> })
         bio: typeof d.bio === 'string' ? d.bio : undefined,
         socials: (d.socials ?? {}) as ExCoreMember['socials'],
         memberType: d.memberType === 'activator' ? 'activator' : 'core',
-        // NaN is a number "type" but never a valid batch → groupByBatchDesc
-        // sinks malformed batches to the bottom of the page.
-        exCoreBatch: typeof d.exCoreBatch === 'number' ? d.exCoreBatch : Number.NaN,
+        // Legacy records carry exCoreBatch (never written anymore); lib/excore
+        // reads it only as a tenure fallback for members without history.
+        exCoreBatch: d.exCoreBatch,
         roleHistory: Array.isArray(d.roleHistory)
-            ? (d.roleHistory as { year: number; role: string }[])
+            ? (d.roleHistory as ExCoreMember['roleHistory'])
             : [],
         displayOrder: typeof d.displayOrder === 'number' ? d.displayOrder : 0,
         linkedUserId: null,
@@ -33,7 +33,7 @@ function toPlainMember(doc: { id: string; data: () => Record<string, unknown> })
 }
 
 /**
- * Public Ex-Core page: former Core members & Activators by Ex-Core batch.
+ * Public Ex-Core page: former Core members & Activators by tenure year.
  * Reads only the public ex_core_members collection server-side.
  */
 export default async function ExCorePage() {

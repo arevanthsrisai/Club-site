@@ -44,8 +44,23 @@ export async function getEventRegistrationCounts(eventIds: string[]): Promise<Re
 }
 
 export async function createEvent(event: Omit<Event, "id">) {
-    const docRef = await addDoc(collection(db, "events"), event);
-    return docRef.id;
+    // Use the new server API that creates the event with auto-generated forms
+    const { getAuthHeaders } = await import("@/lib/authHeaders");
+    const headers = await getAuthHeaders();
+    if (!headers) throw new Error("Sign in required.");
+
+    const res = await fetch("/api/admin/events/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ event }),
+    });
+
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+        throw new Error(payload?.error || "Could not create the event.");
+    }
+
+    return payload.eventId;
 }
 
 export async function deleteEvent(id: string) {
@@ -108,24 +123,63 @@ export async function updateEvent(id: string, data: Partial<Event>) {
 }
 
 // --- Attendance ---
-// The code lives in admin-only 'event_secrets/{eventId}'; the public event doc only says whether attendance is open.
-// deleteField() also clears codes left on event docs by older versions.
+// Attendance sessions are tracked in `attendance_sessions/{sessionId}` with
+// a `event_secrets/{eventId}` doc holding the active session id and code.
+// Each session gets its own code; check-ins are recorded against the
+// active session so history is preserved across restarts.
 
 export async function startAttendance(eventId: string, code: string) {
-    await setDoc(doc(db, "event_secrets", eventId), { code, failures: {} });
-    await updateDoc(doc(db, "events", eventId), { attendanceStatus: "active", attendanceCode: deleteField() });
+    const sessionId = `${eventId}_${Date.now()}`;
+    const now = Date.now();
+    await setDoc(doc(db, "attendance_sessions", sessionId), {
+        id: sessionId,
+        eventId,
+        code,
+        startedAt: now,
+        endedAt: null,
+    });
+    await setDoc(doc(db, "event_secrets", eventId), {
+        code,
+        sessionId,
+        failures: {},
+    });
+    await updateDoc(doc(db, "events", eventId), {
+        attendanceStatus: "active",
+        attendanceSessionId: sessionId,
+        attendanceCode: deleteField(),
+    });
+    return sessionId;
 }
 
 export async function stopAttendance(eventId: string) {
+    const secretsSnap = await getDoc(doc(db, "event_secrets", eventId));
+    if (!secretsSnap.exists()) {
+        // No active session to stop; just mark event ended if not already.
+        const evSnap = await getDoc(doc(db, "events", eventId));
+        if (evSnap.exists() && evSnap.data()!.attendanceStatus !== "ended") {
+            await updateDoc(doc(db, "events", eventId), { attendanceStatus: "ended" });
+        }
+        return;
+    }
+    const secrets = secretsSnap.data()!;
+    const sessionId = secrets.sessionId;
+
     const batch = writeBatch(db);
+    // End the active session
+    if (sessionId) {
+        batch.update(doc(db, "attendance_sessions", sessionId), { endedAt: Date.now() });
+    }
+    // Remove the active code so check-ins are blocked
     batch.delete(doc(db, "event_secrets", eventId));
-    batch.update(doc(db, "events", eventId), { attendanceStatus: "ended", attendanceCode: deleteField() });
+    batch.update(doc(db, "events", eventId), { attendanceStatus: "ended", attendanceSessionId: null });
     await batch.commit();
 }
 
-export async function getAttendanceCode(eventId: string): Promise<string | null> {
+export async function getAttendanceCode(eventId: string): Promise<{ code: string | null; sessionId: string | null }> {
     const snap = await getDoc(doc(db, "event_secrets", eventId));
-    return snap.exists() ? snap.data().code : null;
+    if (!snap.exists()) return { code: null, sessionId: null };
+    const data = snap.data();
+    return { code: data.code || null, sessionId: data.sessionId || null };
 }
 
 export function subscribeToEvent(id: string, callback: (event: Event | null) => void) {

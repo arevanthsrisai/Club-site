@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminContext, hasPermission, logServerActivity, unauthorized } from "@/lib/serverAuthz";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
-import { normalizeYear } from "@/lib/excore";
 
 /**
- * Persisted custom ordering within one Ex-Core batch.
+ * Persisted custom display ordering for Ex-Core members — one GLOBAL sequence
+ * across every member (tenure years no longer scope the ordering; the public
+ * year sections derive their running order by filtering this sequence).
  *
- * POST { batch, order: [memberId, ...] }
+ * POST { order: [memberId, ...] }
  * The submitted order must contain exactly the set of members currently in
- * that batch (no missing, no extra) so a stale browser can never silently
+ * the collection (no missing, no extra) so a stale browser can never silently
  * drop someone. displayOrder is re-numbered 0..n-1 and stored in the
  * database — ordering survives reloads and devices, and alphabetical
  * sorting is never applied when a custom order exists.
@@ -25,21 +26,15 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json().catch(() => ({}));
-        const batch = normalizeYear(body?.batch);
         const order: unknown = body?.order;
 
-        if (batch === null) {
-            return NextResponse.json({ error: "A valid batch year is required." }, { status: 400 });
-        }
-        if (!Array.isArray(order) || order.some(id => typeof id !== "string")) {
+        if (!Array.isArray(order) || order.length === 0 || order.some(id => typeof id !== "string")) {
             return NextResponse.json({ error: "order must be an array of member ids." }, { status: 400 });
         }
 
         const db = getAdminFirestore();
         const result = await db.runTransaction(async (tx) => {
-            const snap = await tx.get(
-                db.collection("ex_core_members").where("exCoreBatch", "==", batch),
-            );
+            const snap = await tx.get(db.collection("ex_core_members"));
             const currentIds = snap.docs.map(d => d.id);
             if (
                 currentIds.length !== order.length ||
@@ -59,7 +54,7 @@ export async function POST(request: NextRequest) {
             return currentIds.length;
         });
 
-        await logServerActivity(ctx.uid, ctx.name, "EXCORE_REORDER", { batch, count: result });
+        await logServerActivity(ctx.uid, ctx.name, "EXCORE_REORDER", { count: result });
         return NextResponse.json({ success: true });
     } catch (err: any) {
         if (err?.message === "STALE_ORDER") {

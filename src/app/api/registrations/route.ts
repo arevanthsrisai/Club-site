@@ -336,13 +336,19 @@ async function checkin(uid: string, body: Body) {
         throw new ApiError('Incorrect code. Please try again.', 403);
     }
 
+    const sessionId = secret.data()!.sessionId;
     const reg = await findRegistration(eventId, uid);
     if (!reg) throw new ApiError('You are not registered for this event', 403);
-    if (reg.data.status === 'attended' || reg.data.attendance?.[uid]) throw new ApiError('You have already checked in');
+    // Duplicate check-in prevention: block only if already checked in for THIS session.
+    // A participant may check in again in a new session after a restart.
+    if (reg.data.attendanceSession?.[uid] === sessionId) {
+        throw new ApiError('You have already checked in for this session');
+    }
 
+    const attended = reg.data.status === 'attended' || !!reg.data.attendance?.[uid];
     await reg.ref.update(reg.data.teamName
-        ? { [`attendance.${uid}`]: true }
-        : { status: 'attended', [`attendance.${uid}`]: true });
+        ? { [`attendance.${uid}`]: true, [`attendanceSession.${uid}`]: sessionId }
+        : { status: attended ? reg.data.status : 'attended', [`attendance.${uid}`]: true, [`attendanceSession.${uid}`]: sessionId });
 }
 
 async function feedback(uid: string, body: Body) {

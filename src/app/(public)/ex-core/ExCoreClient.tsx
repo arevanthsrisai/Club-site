@@ -2,17 +2,22 @@
 
 import { useMemo, useState } from "react";
 import type { ExCoreMember } from "@/lib/excore";
-import { groupByBatchDesc } from "@/lib/excore";
+import { groupByTenureYearDesc, latestRoleLabel } from "@/lib/excore";
 import TeamMemberCard from "@/components/public/TeamCards";
 import MemberModal, { safeHttpUrl } from "@/components/public/MemberModal";
+import { normalizeRoleEntry, tenureLabel } from "@/lib/excore";
 import { History, ChevronRight } from "lucide-react";
 
 /**
- * Public Ex-Core listing. Newest batch first; inside a batch the persisted
+ * Public Ex-Core listing, grouped by academic YEAR from each member's
+ * role-history tenure. Newest year first; inside a year the persisted
  * custom order (displayOrder) wins — alphabetical is never applied when the
- * CTO has ordered the batch. Visual hierarchy mirrors /about exactly:
+ * CTO has ordered the members. Visual hierarchy mirrors /about exactly:
  * former Core roles (President, VP, CTO…) render the full photo card, while
  * Activators render the compact small block used for activators there.
+ *
+ * A member on a two-year tenure appears in BOTH of their year sections from
+ * the SAME profile record — this is a year view, never a duplicate profile.
  */
 
 interface ExCoreDisplayMember {
@@ -23,25 +28,19 @@ interface ExCoreDisplayMember {
     bio: string;
     links: { linkedin: string | null; github: string | null; instagram: string | null };
     memberType: "core" | "activator";
-    exCoreBatch: number;
-    roleHistory: { year: number; role: string }[];
+    roleHistory: { startYear: number; endYear: number; role: string }[];
 }
 
 export default function ExCoreClient({ members }: { members: ExCoreMember[] }) {
     const [selected, setSelected] = useState<ExCoreDisplayMember | null>(null);
 
-    const batches = useMemo(() => groupByBatchDesc(members), [members]);
+    const yearGroups = useMemo(() => groupByTenureYearDesc(members), [members]);
 
-    const cardLabel = (m: ExCoreMember) =>
-        (m.roleHistory && m.roleHistory.length > 0)
-            ? m.roleHistory[0].role
-            : (m.memberType === "activator" ? "Activator" : "Ex-Core");
-
-    const openMember = (m: ExCoreMember, batchYear: number) =>
+    const openMember = (m: ExCoreMember) =>
         setSelected({
             id: m.id,
             name: m.name || "Member",
-            roleLabel: cardLabel(m),
+            roleLabel: latestRoleLabel(m, m.memberType === "activator" ? "activator" : "core"),
             image: m.photoURL || "",
             bio: m.bio || "",
             links: {
@@ -50,8 +49,10 @@ export default function ExCoreClient({ members }: { members: ExCoreMember[] }) {
                 instagram: safeHttpUrl(m.socials?.instagram),
             },
             memberType: m.memberType === "activator" ? "activator" : "core",
-            exCoreBatch: batchYear,
-            roleHistory: (m.roleHistory || []).slice(),
+            // Normalized tenure entries so the modal can render ranges.
+            roleHistory: (m.roleHistory || [])
+                .map(e => normalizeRoleEntry(e))
+                .filter((e): e is { startYear: number; endYear: number; role: string } => e !== null),
         });
 
     return (
@@ -64,14 +65,14 @@ export default function ExCoreClient({ members }: { members: ExCoreMember[] }) {
                     <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gradient-to-tr from-[#0099ff1a] via-[#0044ff1a] to-[#00ccff1a] blur-[40px] rounded-full -z-10 animate-[titleGlow_4s_ease-in-out_infinite pointer-events-none]" />
                 </h2>
                 <p className="text-gray-400 max-w-2xl mx-auto">
-                    The members who built ReLU before handing it on, organized by the batch they stepped down in.
+                    The members who built ReLU before handing it on, by the academic years recorded in their tenure.
                 </p>
             </div>
 
-            {batches.length === 0 ? (
+            {yearGroups.length === 0 ? (
                 <p className="text-center text-gray-500">No Ex-Core members listed yet.</p>
             ) : (
-                batches.map(group => (
+                yearGroups.map(group => (
                     <section key={group.year} className="mb-20 last:mb-8" aria-label={group.label}>
                         <h3 className="section-title text-2xl md:text-3xl mb-10 text-transparent bg-clip-text bg-gradient-to-b from-blue-300 to-blue-600 uppercase tracking-[4px] md:tracking-[8px] font-bold text-center">
                             {group.label}
@@ -83,13 +84,13 @@ export default function ExCoreClient({ members }: { members: ExCoreMember[] }) {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 justify-items-center">
                                     {group.core.map(m => (
                                         <TeamMemberCard
-                                            key={m.id}
+                                            key={`${group.year}-${m.id}`}
                                             member={{
                                                 name: m.name || "Member",
-                                                role: cardLabel(m),
+                                                role: latestRoleLabel(m, "core"),
                                                 image: m.photoURL || "",
                                             }}
-                                            onOpen={() => openMember(m, group.year)}
+                                            onOpen={() => openMember(m)}
                                         />
                                     ))}
                                 </div>
@@ -102,9 +103,9 @@ export default function ExCoreClient({ members }: { members: ExCoreMember[] }) {
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     {group.activators.map(m => (
                                         <button
-                                            key={m.id}
+                                            key={`${group.year}-${m.id}`}
                                             type="button"
-                                            onClick={() => openMember(m, group.year)}
+                                            onClick={() => openMember(m)}
                                             aria-label={`View details for ${m.name || "activator"}`}
                                             className="bg-white/5 border border-white/10 rounded-lg p-4 text-center hover:bg-white/10 hover:border-blue-500/30 transition-all duration-300 hover:-translate-y-1 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:-translate-y-1 group cursor-pointer"
                                         >
@@ -123,9 +124,9 @@ export default function ExCoreClient({ members }: { members: ExCoreMember[] }) {
                 ))
             )}
 
-            {batches.length === 0 && (
+            {yearGroups.length === 0 && (
                 <div className="max-w-xl mx-auto text-center text-gray-600 text-sm flex items-center justify-center gap-2" aria-hidden="true">
-                    <History size={14} /> Former core members and activators appear here by batch.
+                    <History size={14} /> Former core members and activators appear here by tenure year.
                 </div>
             )}
 
@@ -150,7 +151,10 @@ export default function ExCoreClient({ members }: { members: ExCoreMember[] }) {
                     exCore={{
                         bio: selected.bio,
                         memberType: selected.memberType,
-                        roleHistory: selected.roleHistory,
+                        tenures: selected.roleHistory.map(t => ({
+                            label: tenureLabel(t.startYear, t.endYear),
+                            role: t.role,
+                        })),
                     }}
                     onClose={() => setSelected(null)}
                 />

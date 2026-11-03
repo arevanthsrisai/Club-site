@@ -193,8 +193,31 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    match /settings/{docId} {
+    // --- Event-scoped Forms (draft → published → closed lifecycle) ---
+    // Every form belongs to an event. Published forms are publicly readable
+    // so event pages can render; draft/closed stay admin-only. Writes never
+    // come from the client: creation/edits go through /api/admin/forms/*
+    // (Admin SDK, which enforces the Forms permission) and submissions
+    // through /api/forms/submit.
+    match /forms/{formId} {
+      allow get, list: if isAdmin() || resource.data.status == 'published';
+      allow write: if false;
+    }
+
+    // Generic form submissions. Denormalized with eventId so they can be
+    // queried per event without joining forms. Written only by
+    // /api/forms/submit (Admin SDK); only admins read them.
+    match /form_submissions/{submissionId} {
       allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /settings/{docId} {
+      // Onboarding config (classes/sections) is non-sensitive: any signed-in
+      // user needs it to fill in profile dropdowns during account creation.
+      // Admin-only reads blocked new users whose admin profile doesn't exist
+      // yet or is still pending.
+      allow read: if isAuthenticated();
       allow write: if isCTO();
     }
   }

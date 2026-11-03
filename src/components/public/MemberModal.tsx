@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AdminProfile } from "@/types";
 import { ClubRole, roleLabel } from "@/lib/roles";
-import { academicYearLabel } from "@/lib/excore";
+import { formatDisplayDate } from "@/lib/birthdays";
 import { safeHttpUrl } from "@/lib/publicUrl";
 import { Shield, Briefcase, GraduationCap, Coins, Terminal, Zap, Crown, Linkedin, Github, Instagram, X, Calendar, User, History } from "lucide-react";
 import Image from "next/image";
@@ -31,12 +31,14 @@ interface MemberModalProps {
     onClose: () => void;
     /** Public renders hide internal-only fields (status, join date, role icons). */
     publicView?: boolean;
-    /** When present the modal shows Ex-Core data: role history, batch, bio —
-     *  and hides the internal admin-profile fields entirely. */
+    /** When present the modal shows Ex-Core data: bio + role-history
+     *  tenures (newest first) — and hides the internal admin-profile fields.
+     *  Each tenure label spans its recorded years, e.g. “2026–28” for a
+     *  two-year tenure covering 2026–27 and 2027–28. */
     exCore?: {
         bio?: string;
         memberType: "core" | "activator";
-        roleHistory: { year: number; role: string }[];
+        tenures: { label: string; role: string }[];
     } | null;
 }
 
@@ -118,7 +120,7 @@ export default function MemberModal({ member, roles, onClose, publicView = false
                         </span>
                     </div>
 
-                    {/* Ex-Core view: bio + multi-year role history, newest first. */}
+                    {/* Ex-Core view: bio + role-history tenures, newest first. */}
                     {exCore ? (
                         <div className="p-6 md:p-8 space-y-6">
                             {exCore.bio && (
@@ -133,13 +135,13 @@ export default function MemberModal({ member, roles, onClose, publicView = false
                                 <h3 className="text-lg font-bold text-gray-400 mb-3 flex items-center gap-2">
                                     <History size={18} aria-hidden="true" /> Role history
                                 </h3>
-                                {exCore.roleHistory.length === 0 ? (
+                                {exCore.tenures.length === 0 ? (
                                     <p className="text-gray-600 text-sm italic">No role history recorded.</p>
                                 ) : (
                                     <ul className="space-y-2">
-                                        {exCore.roleHistory.map((e, i) => (
+                                        {exCore.tenures.map((e, i) => (
                                             <li key={i} className="text-sm text-gray-200 flex items-baseline gap-3">
-                                                <span className="text-gray-500 font-mono shrink-0">{academicYearLabel(e.year)}</span>
+                                                <span className="text-gray-500 font-mono shrink-0">{e.label}</span>
                                                 <span className="break-words">{e.role}</span>
                                             </li>
                                         ))}
@@ -185,10 +187,14 @@ export default function MemberModal({ member, roles, onClose, publicView = false
                                         <span className="text-white font-mono break-all">{member.rollNo}</span>
                                     </div>
                                 )}
-                                {member.dob && (
+                                {member.dob && !publicView && (
                                     <div className="grid grid-cols-[100px_1fr] gap-2 text-sm max-sm:grid-cols-1">
                                         <span className="text-gray-500">Birthday:</span>
-                                        <span className="text-white">{new Date(member.dob).toLocaleDateString()}</span>
+                                        {/* DOBs are stored as "YYYY-MM-DD" strings; parsing them
+                                            as UTC Dates shifts the shown day in negative-offset
+                                            time zones. formatDisplayDate never constructs a UTC
+                                            date, so it renders the stored day identically. */}
+                                        <span className="text-white">{formatDisplayDate(member.dob)}</span>
                                     </div>
                                 )}
                                 {!publicView && (

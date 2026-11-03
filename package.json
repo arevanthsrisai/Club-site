@@ -11,10 +11,12 @@
         "start": "node scripts/start-prod.mjs",
         "lint": "eslint .",
         "test:rules": "npx -y firebase-tools@14.26.0 emulators:exec --only firestore,storage --project demo-relu \"node --test tests/rules.test.mjs\"",
-        "test:unit": "node --test tests/normalizeEmail.test.mjs tests/firestoreDatabaseId.test.mjs tests/rateLimit.test.mjs tests/dashboardInsights.test.mjs tests/messages.test.mjs tests/excore.test.mjs tests/permissions.test.mjs"
+        "test:unit": "node --test tests/normalizeEmail.test.mjs tests/firestoreDatabaseId.test.mjs tests/rateLimit.test.mjs tests/dashboardInsights.test.mjs tests/messages.test.mjs tests/excore.test.mjs tests/birthdays.test.mjs tests/permissions.test.mjs"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1157.0",
+        "docx": "^9.15.1",
+        "exceljs": "^4.4.0",
         "firebase": "^12.6.0",
         "firebase-admin": "^14.3.0",
         "jspdf": "^4.2.1",
@@ -43,6 +45,7 @@
         "autoprefixer": "^10.4.19",
         "eslint": "^9.39.5",
         "eslint-config-next": "^16.4.3",
+        "jszip": "^3.10.2",
         "postcss": "^8",
         "tailwindcss": "^3.4.1",
         "typescript": "^5",

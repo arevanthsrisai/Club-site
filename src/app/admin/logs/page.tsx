@@ -5,7 +5,7 @@ import { getDocs, collection, query, orderBy, startAfter, limit as fsLimit, Time
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
 import { AuditLog } from "@/lib/api";
-import { Activity, Search, RefreshCw, ChevronRight, Loader2, AlertCircle, Download } from "lucide-react";
+import { Activity, Search, RefreshCw, ChevronRight, Loader2, AlertCircle, Download, CalendarDays } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import { useToast } from "@/components/ui/Toast";
 import { convertToCSV } from "@/lib/csvUtils";
@@ -157,20 +157,49 @@ export default function LogsPage() {
                     {ACTION_GROUPS.map(g => <option key={g.label} value={g.label}>{g.label}</option>)}
                 </select>
                 <div className="flex gap-2">
-                    <input
-                        type="date"
-                        aria-label="From date"
-                        className="bg-black/40 border border-white/10 rounded-lg p-2.5 text-white text-sm [color-scheme:dark]"
-                        value={range.from}
-                        onChange={e => setRange(r => ({ ...r, from: e.target.value }))}
-                    />
-                    <input
-                        type="date"
-                        aria-label="To date"
-                        className="bg-black/40 border border-white/10 rounded-lg p-2.5 text-white text-sm [color-scheme:dark]"
-                        value={range.to}
-                        onChange={e => setRange(r => ({ ...r, to: e.target.value }))}
-                    />
+                    <div className="relative cursor-pointer" onClick={e => {
+                        e.currentTarget.querySelector<HTMLInputElement>('input[type="date"]')?.showPicker();
+                    }}>
+                        <input
+                            type="date"
+                            aria-label="From date"
+                            className="bg-black/40 border border-white/10 rounded-lg p-2.5 text-white text-sm [color-scheme:dark] pl-8"
+                            value={range.from}
+                            onChange={e => setRange(r => ({ ...r, from: e.target.value }))}
+                        />
+                        <button
+                            type="button"
+                            onClick={e => {                                e.stopPropagation();
+                                e.currentTarget.parentElement?.querySelector<HTMLInputElement>('input[type="date"]')?.showPicker();
+                            }}
+                            aria-label="Open date picker"
+                            className="absolute left-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-white transition-colors"
+                        >
+                            <CalendarDays size={14} aria-hidden="true" />
+                        </button>
+                    </div>
+                    <div className="relative cursor-pointer" onClick={e => {
+                        e.currentTarget.querySelector<HTMLInputElement>('input[type="date"]')?.showPicker();
+                    }}>
+                        <input
+                            type="date"
+                            aria-label="To date"
+                            className="bg-black/40 border border-white/10 rounded-lg p-2.5 text-white text-sm [color-scheme:dark] pl-8"
+                            value={range.to}
+                            onChange={e => setRange(r => ({ ...r, to: e.target.value }))}
+                        />
+                        <button
+                            type="button"
+                            onClick={e => {
+                                e.stopPropagation();
+                                e.currentTarget.parentElement?.querySelector<HTMLInputElement>('input[type="date"]')?.showPicker();
+                            }}
+                            aria-label="Open date picker"
+                            className="absolute left-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-white transition-colors"
+                        >
+                            <CalendarDays size={14} aria-hidden="true" />
+                        </button>
+                    </div>
                 </div>
             </div>
 

@@ -1,6 +1,6 @@
 import { db } from "@/lib/firebase";
 import { collection, doc, getDocs, onSnapshot, query, setDoc, deleteDoc, where, writeBatch, getCountFromServer, type Firestore } from "firebase/firestore";
-import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, DEFAULT_ROLES, withBuiltIns } from "@/lib/roles";
+import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, DEFAULT_ROLES, EX_CORE_ROLE, withBuiltIns } from "@/lib/roles";
 import { logActivity } from "./audit";
 
 // Helper to get the roles collection reference lazily (avoids module-scope
@@ -31,6 +31,9 @@ export async function seedDefaultRoles() {
 export async function saveRole(role: ClubRole, actorUid?: string, actorName?: string) {
     if (!role.id || !role.label.trim()) throw new Error("A role needs a name.");
     if (role.id === DEFAULT_ROLE_ID && role.limit !== null) throw new Error("Activator must stay unlimited.");
+    // Ex-Core Member must never gain permissions: force the empty set no
+    // matter what the caller sent (UI lock, API guard or corrupted payload).
+    if (role.id === EX_CORE_ROLE.id) return saveRole({ ...role, permissions: [] }, actorUid, actorName);
     const { id, ...data } = role;
     // Build a clean payload: never write undefined fields (Firestore rejects
     // them), and only include fields that are actually present so a partial
@@ -47,7 +50,7 @@ export async function saveRole(role: ClubRole, actorUid?: string, actorName?: st
 }
 
 export async function deleteRole(id: string, actorUid?: string, actorName?: string) {
-    if (id === CTO_ROLE.id || id === DEFAULT_ROLE_ID) throw new Error("This role cannot be deleted.");
+    if (id === CTO_ROLE.id || id === DEFAULT_ROLE_ID || id === EX_CORE_ROLE.id) throw new Error("This role cannot be deleted.");
     const holders = await getCountFromServer(query(collection(db, "admins"), where("role", "==", id)));
     if (holders.data().count > 0) throw new Error("Move everyone out of this role before deleting it.");
     await deleteDoc(doc(rolesCollection(db), id));

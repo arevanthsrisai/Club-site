@@ -32,7 +32,9 @@ interface StudentsResponse {
     can: { edit: boolean; delete: boolean };
 }
 
-/** Editable profile fields — identifiers (uid, createdAt) are never editable. */
+/** Editable profile fields — identifiers (uid, createdAt) are never editable.
+ * Verification comes from Firebase email verification, not from here.
+ */
 interface EditForm {
     displayName: string;
     email: string;
@@ -41,7 +43,6 @@ interface EditForm {
     section: string;
     mobile: string;
     hosteller: boolean;
-    isVerified: boolean;
 }
 
 const inputClass = "w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-white text-sm focus:border-blue-500 outline-none";
@@ -130,7 +131,6 @@ export default function StudentsPage() {
             section: student.section,
             mobile: student.mobile,
             hosteller: student.hosteller,
-            isVerified: student.isVerified,
         });
     };
 
@@ -155,7 +155,6 @@ export default function StudentsPage() {
             if (form.section !== editing.section) changed.section = form.section;
             if (form.mobile !== editing.mobile) changed.mobile = form.mobile;
             if (form.hosteller !== editing.hosteller) changed.hosteller = form.hosteller;
-            if (form.isVerified !== editing.isVerified) changed.isVerified = form.isVerified;
             if (Object.keys(changed).length === 0) {
                 toast.info("No changes to save.");
                 setEditing(null);
@@ -393,11 +392,7 @@ export default function StudentsPage() {
                                 <input type="checkbox" className="accent-blue-500" checked={form.hosteller} onChange={e => setForm({ ...form, hosteller: e.target.checked })} />
                                 Hosteller
                             </label>
-                            <label className="flex items-center gap-2 text-sm text-gray-300">
-                                <input type="checkbox" className="accent-blue-500" checked={form.isVerified} onChange={e => setForm({ ...form, isVerified: e.target.checked })} />
-                                Registration verified
-                            </label>
-                            <p className="text-xs text-gray-600">Editing a student&apos;s profile never changes their club role or admin access.</p>
+                            <p className="text-xs text-gray-600">Editing a student&apos;s profile never changes their club role, admin access, or Firebase verification status. Verification follows their Firebase emailVerified flag.</p>
                         </div>
 
                         <div className="flex justify-end gap-3 mt-6">

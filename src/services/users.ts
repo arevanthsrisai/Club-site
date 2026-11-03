@@ -5,7 +5,7 @@ import { UserProfile } from "@/types";
 
 // --- Public User API ---
 
-export async function createUserProfile(uid: string, email: string) {
+export async function createUserProfile(uid: string, email: string, rollNo?: string) {
     const normalized = normalizeEmail(email) ?? email;
     const randomAvatar = await getRandomDefaultAvatar();
     const userProfile: UserProfile = {
@@ -13,6 +13,7 @@ export async function createUserProfile(uid: string, email: string) {
         email: normalized,
         photoURL: randomAvatar,
         isVerified: false,
+        rollNo,
         createdAt: Timestamp.now()
     };
     await setDoc(doc(db, "users", uid), userProfile);

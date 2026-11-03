@@ -98,6 +98,7 @@ export interface UserProfile {
     section?: string; // e.g. "A", "B" - Configurable
     hosteller?: boolean;
     mobile?: string;
+    dob?: string; // "YYYY-MM-DD" — optional, used for birthday wishes
     isVerified: boolean;
     createdAt: any;
 }

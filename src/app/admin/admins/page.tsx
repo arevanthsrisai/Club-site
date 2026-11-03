@@ -25,9 +25,9 @@ export default function AdminUsersPage() {
     const [replacing, setReplacing] = useState<{ target: AdminProfile; role: ClubRole; holders: AdminProfile[]; replacedUid: string } | null>(null);
 
     // Collapsible sections: the Active Team and the Ex-Core accounts can both
-    // be folded away to keep the page short.
-    const [activeOpen, setActiveOpen] = useState(true);
-    const [exCoreOpen, setExCoreOpen] = useState(true);
+    // be folded away to keep the page short. Both start collapsed by default.
+    const [activeOpen, setActiveOpen] = useState(false);
+    const [exCoreOpen, setExCoreOpen] = useState(false);
     // Linked Ex-Core profiles, used to map a moved account back to its profile.
     const [exCoreMembers, setExCoreMembers] = useState<ExCoreMember[]>([]);
 

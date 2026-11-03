@@ -1,13 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState, useRef } from "react";
 import { useAuth, signOut } from "@/lib/auth";
 import { getUserProfile, updateUserProfile, getOnboardingConfig, OnboardingConfig } from "@/lib/api";
 import { Timestamp } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import {
-    User, LogOut, Edit2, AlertCircle, Briefcase, Hash, Layers,
+    User, LogOut, Edit2, AlertCircle, Briefcase, Layers,
     CheckCircle, Camera, BadgeCheck, ShieldAlert, Phone, CalendarDays, RefreshCw
 } from "lucide-react";
 import { UserProfile } from "@/types";
@@ -17,22 +17,30 @@ import PageLoading from "@/components/ui/PageLoading";
 
 const EMPTY_FORM = {
     displayName: "",
-    rollNo: "",
     class: "",
     section: "",
     mobile: "",
+    dob: "",
     hosteller: false
 };
 
 function formFromProfile(p: UserProfile | null) {
     return {
         displayName: p?.displayName || "",
-        rollNo: p?.rollNo || "",
         class: p?.class || "",
         section: p?.section || "",
         mobile: p?.mobile || "",
+        dob: p?.dob || "",
         hosteller: p?.hosteller || false
     };
+}
+
+/** Convert YYYY-MM-DD → DD-MM-YYYY for display (input value stays YYYY-MM-DD). */
+function formatDob(date: string | null): string {
+    if (!date) return '';
+    const parts = date.split('-');
+    if (parts.length !== 3) return date;
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
 }
 
 function ProfileContent() {
@@ -53,6 +61,7 @@ function ProfileContent() {
     const [formData, setFormData] = useState(EMPTY_FORM);
     const [config, setConfig] = useState<OnboardingConfig>({ classes: [], sections: [] });
     const [error, setError] = useState("");
+    const dobInputRef = useRef<HTMLInputElement>(null);
 
     const loadData = useCallback(async () => {
         if (!user) return;
@@ -66,6 +75,7 @@ function ProfileContent() {
 
             setConfig(onboardingConfig);
             setProfile(userProfile);
+
             setFormData(formFromProfile(userProfile));
 
             if (userProfile) {
@@ -113,8 +123,8 @@ function ProfileContent() {
         setError("");
 
         // Basic Validation
-        if (!formData.displayName || !formData.rollNo || !formData.class || !formData.section || !formData.mobile) {
-            setError("Please fill in all fields.");
+        if (!formData.displayName || !formData.class || !formData.section || !formData.mobile) {
+            setError("Please fill in all required fields.");
             return;
         }
         if (!/^\d{10}$/.test(formData.mobile.replace(/\s/g, ""))) {
@@ -130,12 +140,8 @@ function ProfileContent() {
                 ...formData,
                 mobile: formData.mobile.replace(/\s/g, ""),
                 email: user.email || "", // Ensure email is saved
-                // If RollNo, Class, or Section changed, revoke verification
-                isVerified: (
-                    profile?.rollNo === formData.rollNo &&
-                    profile?.class === formData.class &&
-                    profile?.section === formData.section
-                ),
+                // Verification comes from Firebase email verification — no admin review needed
+                isVerified: user.emailVerified || false,
                 // If new profile, set creation time
                 ...(profile ? {} : { createdAt: Timestamp.now() })
             });
@@ -240,7 +246,7 @@ function ProfileContent() {
                 : "bg-yellow-500/10 text-yellow-400 border-yellow-500/30"}`}
         >
             {profile?.isVerified ? <BadgeCheck size={14} aria-hidden="true" /> : <ShieldAlert size={14} aria-hidden="true" />}
-            {profile?.isVerified ? "Details verified" : "Pending review"}
+            {profile?.isVerified ? "Email verified" : "Email not verified"}
         </span>
     );
 
@@ -296,22 +302,6 @@ function ProfileContent() {
                                     />
                                 </div>
                             </div>
-
-                            <div>
-                                <label htmlFor="profile-rollno" className="block text-xs font-bold text-gray-400 uppercase mb-2">Roll Number</label>
-                                <div className="relative">
-                                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} aria-hidden="true" />
-                                    <input
-                                        id="profile-rollno"
-                                        type="text"
-                                        maxLength={15}
-                                        value={formData.rollNo}
-                                        onChange={e => setFormData({ ...formData, rollNo: e.target.value.toUpperCase() })}
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 uppercase"
-                                        placeholder="U4AIE..."
-                                    />
-                                </div>
-                            </div>
                         </div>
 
                         {/* Academic Info */}
@@ -361,6 +351,31 @@ function ProfileContent() {
                                         onChange={e => setFormData({ ...formData, mobile: e.target.value.replace(/\D/g, "") })}
                                         className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                                         placeholder="9876543210"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="md:col-span-2 lg:col-span-2">
+                                <label htmlFor="profile-dob" className="block text-xs font-bold text-gray-400 uppercase mb-2">Date of Birth</label>
+                                <p className="text-[10px] text-gray-500 mb-2">Optional — used for birthday wishes; your birth year stays private.</p>
+                                <div className="relative w-full">
+                                    <button
+                                        type="button"
+                                        onClick={() => dobInputRef.current?.showPicker()}
+                                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-left flex items-center hover:bg-black/60 transition-colors"
+                                    >
+                                        <CalendarDays size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                        <span className={formData.dob ? 'text-white' : 'text-gray-500'}>
+                                            {formatDob(formData.dob) || 'Pick a date'}
+                                        </span>
+                                    </button>
+                                    <input
+                                        ref={dobInputRef}
+                                        id="profile-dob"
+                                        type="date"
+                                        className="sr-only"
+                                        value={formData.dob}
+                                        onChange={e => setFormData({ ...formData, dob: e.target.value })}
                                     />
                                 </div>
                             </div>
@@ -504,10 +519,9 @@ function ProfileContent() {
 
                                 <div className="bg-black/20 p-4 rounded-xl border border-white/5">
                                     <p className="text-xs text-gray-500 uppercase font-bold mb-1">Status</p>
-                                    <p className={`font-bold text-sm flex items-center gap-2 ${profile?.isVerified ? "text-green-400" : "text-yellow-400"}`}>
-                                        {profile?.isVerified
-                                            ? <><CheckCircle size={14} aria-hidden="true" /> Verified member</>
-                                            : <><ShieldAlert size={14} aria-hidden="true" /> Awaiting review</>}
+                                    <p className={`font-bold text-sm flex items-center gap-2 ${profile?.isVerified ? "text-green-400" : "text-yellow-400"}`}>{profile?.isVerified
+            ? <><CheckCircle size={14} aria-hidden="true" /> Verified</>
+            : <><ShieldAlert size={14} aria-hidden="true" /> Email not verified</>}
                                     </p>
                                 </div>
                             </div>

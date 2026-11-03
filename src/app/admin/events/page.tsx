@@ -121,6 +121,13 @@ export default function EventsAdmin() {
                             LIVE
                         </div>
                         <Link
+                            href="/admin/events/lifecycle"
+                            className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors border border-white/10"
+                        >
+                            <Users size={18} />
+                            <span>Registrations &amp; attendance</span>
+                        </Link>
+                        <Link
                             href="/admin/events/new"
                             className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
                         >

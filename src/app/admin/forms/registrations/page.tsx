@@ -1,298 +1,411 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { getEvents, getEventRegistrations } from "@/lib/api";
-import { Event, EventRegistration } from "@/types";
-import { Calendar, Download, Search, User, ArrowLeft, Users, RefreshCw, Database } from "lucide-react";
-import JsPDF from "jspdf";
+/**
+ * Form submissions management: pick a form, browse/search its submissions and
+ * export them in any of the seven supported formats (CSV, XLSX, PDF, DOCX,
+ * JSON, TXT, HTML). Exports run server-side from persisted Firestore data and
+ * honour the current search filter, so admins can export exactly what is on
+ * screen or everything.
+ */
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import PageHeader from "@/components/ui/PageHeader";
-import autoTable from "jspdf-autotable";
+import { useToast } from "@/components/ui/Toast";
+import {
+    subscribeToForms,
+    subscribeToFormSubmissions,
+    exportFormRegistrations,
+    ApiError,
+} from "@/services/forms";
+import { formatAnswerValue, resolveFieldLabel } from "@/lib/forms";
+import { EXPORT_FORMATS } from "@/lib/export/formExports";
+import type { Form, FormSubmission } from "@/types/forms";
+import {
+    ClipboardList, ChevronDown, Download, ExternalLink, FileText,
+    RefreshCw, Search, Users,
+} from "lucide-react";
 
-export default function RegistrationsPage() {
-    const [events, setEvents] = useState<Event[]>([]);
-    const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-    const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [loadError, setLoadError] = useState(false);
-    const [fetchingRegs, setFetchingRegs] = useState(false);
-    const [searchTerm, setSearchTerm] = useState("");
+const PAGE_SIZE = 300;
 
+export default function FormRegistrationsPage() {
+    const toast = useToast();
+    const [forms, setForms] = useState<Form[]>([]);
+    const [formsLoading, setFormsLoading] = useState(true);
+    const [formId, setFormId] = useState<string | null>(null);
+    const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
+    const [subsLoading, setSubsLoading] = useState(false);
+    const [subsError, setSubsError] = useState(false);
+    const [searchInput, setSearchInput] = useState("");
+    const [search, setSearch] = useState("");
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const [exportMenuOpen, setExportMenuOpen] = useState(false);
+    const [exportingFormat, setExportingFormat] = useState<string | null>(null);
+
+    // Deep link: /admin/forms/registrations?form=<id> (set by the Forms list page).
     useEffect(() => {
-        loadEvents();
+        const wanted = new URLSearchParams(window.location.search).get("form");
+        if (wanted) setFormId(wanted);
     }, []);
 
-    const loadEvents = async () => {
-        try {
-            const data = await getEvents();
-            // Sort by upcoming first
-            const sorted = data.sort((a, b) => b.date.localeCompare(a.date));
-            setEvents(sorted);
-        } catch (error) {
-            console.error(error);
-            setLoadError(true);
-        } finally {
-            setLoading(false);
-        }
-    };
+    useEffect(() => {
+        const t = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 300);
+        return () => clearTimeout(t);
+    }, [searchInput]);
 
-    const handleSelectEvent = async (event: Event) => {
-        setSelectedEvent(event);
-        setFetchingRegs(true);
-        try {
-            const regs = await getEventRegistrations(event.id);
-            setRegistrations(regs);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setFetchingRegs(false);
-        }
-    };
+    useEffect(() => {
+        const unsub = subscribeToForms(
+            fs => {
+                setForms(fs);
+                setFormsLoading(false);
+                // Default to the newest published form if nothing is selected yet.
+                setFormId(cur => cur ?? fs.find(f => f.status === "published")?.id ?? fs[0]?.id ?? null);
+            },
+            () => setFormsLoading(false)
+        );
+        return unsub;
+    }, []);
 
-    const exportToPDF = () => {
-        if (!selectedEvent) return;
+    useEffect(() => {
+        if (!formId) { setSubmissions([]); return; }
+        setSubsLoading(true);
+        setSubsError(false);
+        setSelected(new Set());
+        setExpanded(new Set());
+        const unsub = subscribeToFormSubmissions(
+            formId,
+            PAGE_SIZE,
+            subs => { setSubmissions(subs); setSubsLoading(false); },
+            () => { setSubsError(true); setSubsLoading(false); }
+        );
+        return unsub;
+    }, [formId]);
 
-        const doc = new JsPDF();
+    const form = useMemo(() => forms.find(f => f.id === formId) ?? null, [forms, formId]);
 
-        // Header
-        doc.setFontSize(20);
-        doc.text(selectedEvent.title, 14, 22);
+    const filtered = useMemo(() => {
+        if (!search) return submissions;
+        return submissions.filter(s =>
+            s.userName.toLowerCase().includes(search) ||
+            s.userEmail.toLowerCase().includes(search) ||
+            Object.entries(s.answers).some(([fid, v]) => {
+                const field = form?.fields.find(f => f.id === fid);
+                return formatAnswerValue(field, v as never).toLowerCase().includes(search) ||
+                    (field?.label ?? "").toLowerCase().includes(search);
+            })
+        );
+    }, [submissions, search, form]);
 
-        doc.setFontSize(11);
-        doc.text(`Date: ${selectedEvent.date}`, 14, 30);
-        doc.text(`Total Registrations: ${registrations.length}`, 14, 36);
+    const selectedForm = forms.find(f => f.id === formId) ?? null;
 
-        const tableColumn = ["Roll No", "Name", "Class", "Section", "Mobile"];
-        const tableRows = registrations.map(reg => [
-            reg.userDetails.rollNo,
-            reg.userDetails.name,
-            reg.userDetails.class,
-            reg.userDetails.section,
-            reg.userDetails.mobile
-        ]);
-
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            startY: 44,
+    const toggleSelected = (id: string) => {
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
         });
-
-        doc.save(`${selectedEvent.title.replace(/\s+/g, '_')}_registrations.pdf`);
     };
 
-    const filteredRegistrations = registrations.filter(reg =>
-        reg.userDetails.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        reg.userDetails.rollNo.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    if (loading) {
-        return (
-            <div className="max-w-6xl mx-auto text-white">
-                <PageHeader
-                    title="Registrations"
-                    subtitle="Choose an event to view its registrations."
-                    icon={<Calendar size={26} />}
-                    actions={<span className="bg-white/5 text-gray-500 font-bold py-2 px-4 rounded-lg flex items-center gap-2 border border-white/10" aria-hidden="true">Select</span>}
-                />
-                {/* Skeleton grid mirrors the event-card layout so there is no layout jump. */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" aria-busy="true">
-                    {[...Array(6)].map((_, i) => (
-                        <div key={i} className="bg-white/5 border border-white/10 p-6 rounded-xl">
-                            <div className="h-6 w-3/4 rounded bg-white/10 animate-pulse mb-2" />
-                            <div className="h-4 w-1/3 rounded bg-white/10 animate-pulse mb-4" />
-                            <div className="h-6 w-24 rounded-full bg-white/10 animate-pulse" />
-                        </div>
-                    ))}
-                </div>
-                <span className="sr-only" role="status">Loading events…</span>
-            </div>
-        );
-    }
-
-    if (loadError) {
-        return (
-            <div className="min-h-[60vh] max-w-6xl mx-auto text-white flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6">
-                    <Database size={32} />
-                </div>
-                <h2 className="text-2xl font-bold mb-2">Couldn&apos;t load events</h2>
-                <p className="text-gray-400 max-w-md mb-8">Something went wrong while fetching events. Try again.</p>
-                <button
-                    onClick={() => { setLoading(true); setLoadError(false); loadEvents(); }}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-colors"
-                >
-                    <RefreshCw size={16} /> Retry
-                </button>
-            </div>
-        );
-    }
-
-    if (!selectedEvent) {
-        return (
-            <div className="max-w-6xl mx-auto text-white">
-                <PageHeader
-                    title="Select an Event"
-                    subtitle="Choose an event to view its registrations."
-                    icon={<Calendar size={26} />}
-                />
-                {events.length === 0 ? (
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-12 text-center text-gray-400">
-                        <Calendar size={40} className="mx-auto mb-4 text-gray-600" aria-hidden="true" />
-                        <p className="font-bold text-white mb-1">No events yet</p>
-                        <p className="text-sm">Create an event first — its registrations will appear here.</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {events.map(event => (
-                            <button
-                                key={event.id}
-                                type="button"
-                                onClick={() => handleSelectEvent(event)}
-                                aria-label={`View registrations for ${event.title}`}
-                                className="text-left bg-white/5 border border-white/10 p-6 rounded-xl hover:bg-white/10 cursor-pointer transition-all hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-blue-400"
-                            >
-                                <h2 className="text-xl font-bold mb-2 line-clamp-1">{event.title}</h2>
-                                <div className="flex items-center gap-2 text-gray-400 text-sm mb-4">
-                                    <Calendar size={16} aria-hidden="true" /> {event.date}
-                                </div>
-                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${event.status === 'upcoming' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
-                                    {event.status === 'upcoming' ? 'Upcoming' : 'Past'}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
-    }
-
-    const attendedCount = registrations.filter(r => r.status === 'attended').length;
-    const cancelledCount = registrations.filter(r => r.status === 'cancelled').length;
+    const exportAs = async (format: string) => {
+        setExportMenuOpen(false);
+        if (!selectedForm) return;
+        setExportingFormat(format);
+        try {
+            await exportFormRegistrations(selectedForm, format, search);
+            toast.success(`Exported as ${format.toUpperCase()}${search ? " (current filter)" : ""}.`);
+        } catch (err) {
+            toast.error(err instanceof ApiError ? err.message : "Export failed. Please try again.");
+        } finally {
+            setExportingFormat(null);
+        }
+    };
 
     return (
-        <div className="max-w-7xl mx-auto text-white">
-            {/* Header */}
-            <div className="flex justify-between items-start mb-6 border-b border-white/10 pb-6 gap-4">
-                <div>
-                    <button
-                        onClick={() => setSelectedEvent(null)}
-                        className="flex items-center gap-1.5 text-gray-400 hover:text-white text-sm mb-2 transition-colors"
+        <div className="max-w-7xl mx-auto space-y-6">
+            <PageHeader
+                title="Form Registrations"
+                subtitle="Browse, search and export submissions collected by your forms."
+                icon={<ClipboardList size={26} />}
+                actions={
+                    <Link
+                        href="/admin/forms"
+                        className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
                     >
-                        <ArrowLeft size={14} aria-hidden="true" /> Back to Events
-                    </button>
-                    <h1 className="text-3xl font-bold">{selectedEvent.title}</h1>
-                    <p className="text-blue-400 mt-1">{selectedEvent.date}</p>
-                </div>
-                {/* Registration stats */}
-                <div className="flex gap-3 shrink-0">
-                    <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-center">
-                        <p className="text-xs text-gray-400 mb-0.5">Total</p>
-                        <p className="text-2xl font-bold text-blue-400" aria-label={`${registrations.length} total registrations`}>{registrations.length}</p>
-                    </div>
-                    <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-center">
-                        <p className="text-xs text-gray-400 mb-0.5">Attended</p>
-                        <p className="text-2xl font-bold text-purple-400">{attendedCount}</p>
-                    </div>
-                    <div className="hidden sm:block bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-center">
-                        <p className="text-xs text-gray-400 mb-0.5">Cancelled</p>
-                        <p className="text-2xl font-bold text-red-400">{cancelledCount}</p>
-                    </div>
-                </div>
-            </div>
+                        <ExternalLink size={15} aria-hidden="true" /> All forms
+                    </Link>
+                }
+            />
 
-            {/* Toolbar */}
-            <div className="flex gap-4 mb-6">
+            {/* Form picker + toolbar */}
+            <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative sm:w-80 shrink-0">
+                    <label htmlFor="form-picker" className="sr-only">Choose a form</label>
+                    <div className="flex items-center rounded-xl border border-white/10 bg-white/5 focus-within:border-blue-500/60">
+                        <FileText size={16} className="ml-3 text-gray-400 shrink-0" aria-hidden="true" />
+                        <select
+                            id="form-picker"
+                            value={formId ?? ""}
+                            onChange={e => setFormId(e.target.value || null)}
+                            className="w-full bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none appearance-none pr-8"
+                        >
+                            <option value="" disabled className="bg-gray-900">{formsLoading ? "Loading forms…" : "Select a form"}</option>
+                            {forms.map(f => (
+                                <option key={f.id} value={f.id} className="bg-gray-900">
+                                    {f.title || "Untitled form"} ({f.submissionCount})
+                                </option>
+                            ))}
+                        </select>
+                        <ChevronDown size={15} className="mr-3 text-gray-400 shrink-0 pointer-events-none" aria-hidden="true" />
+                    </div>
+                </div>
+
                 <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} aria-hidden="true" />
-                    <label htmlFor="reg-search" className="sr-only">Search registrations by name or roll number</label>
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} aria-hidden="true" />
+                    <label htmlFor="sub-search" className="sr-only">Search submissions</label>
                     <input
-                        id="reg-search"
-                        type="text"
-                        placeholder="Search student name or roll number..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                        id="sub-search"
+                        type="search"
+                        placeholder="Search by name, email or any answer…"
+                        value={searchInput}
+                        onChange={e => setSearchInput(e.target.value)}
+                        disabled={!formId}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500/60 disabled:opacity-50"
                     />
                 </div>
-                <button
-                    onClick={exportToPDF}
-                    disabled={filteredRegistrations.length === 0}
-                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <Download size={18} aria-hidden="true" /> Export PDF
-                </button>
+
+                {/* Export menu */}
+                <div className="relative shrink-0">
+                    <button
+                        type="button"
+                        onClick={() => setExportMenuOpen(o => !o)}
+                        disabled={!formId || exportingFormat !== null}
+                        aria-expanded={exportMenuOpen}
+                        aria-haspopup="menu"
+                        className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-500 transition-colors disabled:opacity-50 h-full"
+                    >
+                        {exportingFormat
+                            ? <RefreshCw size={15} className="animate-spin" aria-hidden="true" />
+                            : <Download size={15} aria-hidden="true" />}
+                        {exportingFormat ? `Exporting ${exportingFormat.toUpperCase()}…` : "Export"}
+                        <ChevronDown size={14} aria-hidden="true" />
+                    </button>
+                    {exportMenuOpen && (
+                        <div
+                            role="menu"
+                            aria-label="Export formats"
+                            className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-white/10 bg-gray-900 shadow-xl p-1.5"
+                        >
+                            <p className="px-2.5 pt-1 pb-2 text-[11px] uppercase tracking-wide text-gray-500 font-bold">
+                                {search ? `Filtered results (${filtered.length})` : `All submissions (${filtered.length})`}
+                            </p>
+                            {EXPORT_FORMATS.map(f => (
+                                <button
+                                    key={f.id}
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => exportAs(f.id)}
+                                    className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-sm text-gray-200 hover:bg-white/10 transition-colors"
+                                >
+                                    <span className="font-semibold">{f.label}</span>
+                                    <span className="text-xs text-gray-500 font-mono">.{f.id === "xlsx" ? "xlsx" : f.id}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
 
-            {/* Table */}
-            <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
-                {fetchingRegs ? (
-                    <div className="h-64 flex flex-col items-center justify-center gap-3 text-gray-400" role="status">
-                        <RefreshCw size={24} className="animate-spin text-blue-500" aria-hidden="true" />
-                        Loading registrations...
+            {!formId && !formsLoading && forms.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-12 text-center text-gray-400">
+                    <Users size={40} className="mx-auto mb-4 text-gray-600" aria-hidden="true" />
+                    <p className="font-bold text-white mb-1">No forms yet</p>
+                    <p className="text-sm mb-4">Create a form first — its submissions will appear here.</p>
+                    <Link href="/admin/forms/new" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-500 transition-colors">
+                        Create a form
+                    </Link>
+                </div>
+            ) : !formId && !formsLoading ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-12 text-center text-gray-400">
+                    <Users size={40} className="mx-auto mb-4 text-gray-600" aria-hidden="true" />
+                    <p className="font-bold text-white mb-1">Select a form</p>
+                    <p className="text-sm">Choose a form above to view and export its submissions.</p>
+                </div>
+            ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 text-sm">
+                        <p className="text-gray-300">
+                            <span className="font-bold text-white">{filtered.length}</span>
+                            {` ${filtered.length === 1 ? "submission" : "submissions"}`}
+                            {search && ` matching “${searchInput.trim()}”`}
+                            {form && <span className="text-gray-500"> · {form.title}</span>}
+                        </p>
+                        {form && (
+                            <Link
+                                href={`/forms/${form.id}`}
+                                target="_blank"
+                                className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
+                            >
+                                Public page <ExternalLink size={11} aria-hidden="true" />
+                            </Link>
+                        )}
                     </div>
-                ) : filteredRegistrations.length === 0 ? (
-                    <div className="h-64 flex flex-col items-center justify-center gap-3 text-gray-400">
-                        <Users size={32} className="text-gray-600" aria-hidden="true" />
-                        {registrations.length === 0
-                            ? <p>No registrations for this event yet.</p>
-                            : <p>No students match “{searchTerm}”.</p>}
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto h-full">
-                        <table className="w-full text-left">
-                            <thead className="bg-black/20 text-gray-400 text-xs uppercase sticky top-0">
-                                <tr>
-                                    <th className="px-6 py-4 font-bold">Student Name</th>
-                                    <th className="px-6 py-4 font-bold">Roll Number</th>
-                                    <th className="px-6 py-4 font-bold">Class</th>
-                                    <th className="px-6 py-4 font-bold">Section</th>
-                                    <th className="px-6 py-4 font-bold">Mobile</th>
-                                    <th className="px-6 py-4 font-bold">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                                {filteredRegistrations.map((reg) => (
-                                    <tr key={reg.id} className="hover:bg-white/5 transition-colors">
-                                        <td className="px-6 py-4 font-medium">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs">
-                                                    {reg.userDetails.name.charAt(0)}
-                                                </div>
-                                                <div>
-                                                    <div>{reg.userDetails.name}</div>
-                                                    {reg.teamName && (
-                                                        <div className="text-xs text-blue-400 font-bold mt-0.5">
-                                                            Team: {reg.teamName} <span className="text-gray-500 font-normal">({reg.teamMembers?.length} members)</span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 font-mono text-sm text-gray-300">{reg.userDetails.rollNo}</td>
-                                        <td className="px-6 py-4 text-gray-300">{reg.userDetails.class}</td>
-                                        <td className="px-6 py-4 text-gray-300">{reg.userDetails.section}</td>
-                                        <td className="px-6 py-4 text-gray-300 font-mono text-sm">{reg.userDetails.mobile}</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold uppercase border ${reg.status === 'attended'
-                                                    ? 'bg-purple-500/20 text-purple-400 border-purple-500/20'
-                                                    : reg.status === 'cancelled'
-                                                        ? 'bg-red-500/20 text-red-400 border-red-500/20'
-                                                        : 'bg-green-500/20 text-green-400 border-green-500/20'
-                                                }`}>
-                                                {reg.status}
-                                            </span>
-                                            {reg.feedbackSubmitted && (
-                                                <span className="ml-2 px-2 py-1 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded text-xs font-bold">
-                                                    Feedback
-                                                </span>
-                                            )}
-                                        </td>
+
+                    {subsLoading ? (
+                        <div className="h-56 flex flex-col items-center justify-center gap-3 text-gray-400" role="status">
+                            <RefreshCw size={22} className="animate-spin text-blue-500" aria-hidden="true" />
+                            Loading submissions…
+                        </div>
+                    ) : subsError ? (
+                        <div className="h-56 flex flex-col items-center justify-center gap-3 text-red-300">
+                            <p>Could not load submissions.</p>
+                            <button type="button" onClick={() => setFormId(id => id)} className="text-sm underline">Retry</button>
+                        </div>
+                    ) : filtered.length === 0 ? (
+                        <div className="h-56 flex flex-col items-center justify-center gap-2 text-gray-400">
+                            <Users size={30} className="text-gray-600" aria-hidden="true" />
+                            {submissions.length === 0
+                                ? <p>No submissions yet for this form.</p>
+                                : <p>No submissions match “{searchInput.trim()}”.</p>}
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-black/30 text-gray-400 text-xs uppercase">
+                                    <tr>
+                                        <th scope="col" className="px-4 py-3 font-bold w-10">
+                                            <span className="sr-only">Select</span>
+                                            <input
+                                                type="checkbox"
+                                                aria-label="Select all visible submissions"
+                                                className="h-4 w-4 accent-blue-500"
+                                                checked={selected.size > 0 && selected.size === filtered.length}
+                                                onChange={e => setSelected(e.target.checked ? new Set(filtered.map(s => s.id)) : new Set())}
+                                            />
+                                        </th>
+                                        <th scope="col" className="px-4 py-3 font-bold">Submitted by</th>
+                                        {form?.fields.slice(0, 3).map(f => (
+                                            <th key={f.id} scope="col" className="px-4 py-3 font-bold max-w-48 truncate" title={f.label}>{f.label}</th>
+                                        ))}
+                                        <th scope="col" className="px-4 py-3 font-bold">Submitted at</th>
+                                        <th scope="col" className="px-4 py-3 font-bold w-10"><span className="sr-only">Details</span></th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {filtered.map(s => (
+                                        <SubmissionRow
+                                            key={s.id}
+                                            s={s}
+                                            form={form}
+                                            expanded={expanded.has(s.id)}
+                                            selected={selected.has(s.id)}
+                                            onToggleSelect={() => toggleSelected(s.id)}
+                                            onToggleExpand={() => setExpanded(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(s.id)) next.delete(s.id); else next.add(s.id);
+                                                return next;
+                                            })}
+                                        />
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {selected.size > 0 && (
+                <p className="text-xs text-gray-500" role="status">
+                    {selected.size} selected. Selection is for visual scanning — use Export to download data.
+                </p>
+            )}
         </div>
+    );
+}
+
+// ── Row ─────────────────────────────────────────────────────────────────────
+
+function SubmissionRow({
+    s, form, expanded, selected, onToggleSelect, onToggleExpand,
+}: {
+    s: FormSubmission;
+    form: Form | null;
+    expanded: boolean;
+    selected: boolean;
+    onToggleSelect: () => void;
+    onToggleExpand: () => void;
+}) {
+    const fields = form?.fields ?? [];
+    const answerEntries = Object.entries(s.answers) as [string, NonNullable<FormSubmission["answers"][string]>][];
+    const removedEntries = answerEntries.filter(([fid]) => !fields.some(f => f.id === fid));
+    const preview = fields.slice(0, 3).map(f => formatAnswerValue(f, s.answers[f.id] ?? null));
+
+    return (
+        <>
+            <tr className={`hover:bg-white/5 transition-colors ${selected ? "bg-blue-500/10" : ""}`}>
+                <td className="px-4 py-3">
+                    <input
+                        type="checkbox"
+                        aria-label={`Select submission by ${s.userName}`}
+                        className="h-4 w-4 accent-blue-500"
+                        checked={selected}
+                        onChange={onToggleSelect}
+                    />
+                </td>
+                <td className="px-4 py-3">
+                    <div className="font-medium text-white">{s.userName || "Unknown member"}</div>
+                    <div className="text-xs text-gray-400 font-mono">{s.userEmail}</div>
+                </td>
+                {preview.map((txt, i) => (
+                    <td key={i} className="px-4 py-3 text-gray-300 max-w-56">
+                        <span className="line-clamp-2">{txt || <span className="text-gray-600">—</span>}</span>
+                    </td>
+                ))}
+                <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                    {s.submittedAt ? new Date(s.submittedAt).toLocaleString() : "—"}
+                </td>
+                <td className="px-4 py-3">
+                    <button
+                        type="button"
+                        onClick={onToggleExpand}
+                        aria-expanded={expanded}
+                        aria-label={`${expanded ? "Hide" : "Show"} all answers from ${s.userName}`}
+                        className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
+                    >
+                        <ChevronDown size={16} className={expanded ? "rotate-180" : ""} aria-hidden="true" />
+                    </button>
+                </td>
+            </tr>
+            {expanded && (
+                <tr className="bg-black/40">
+                    <td colSpan={4 + Math.min(fields.length, 3)} className="px-6 py-4">
+                        <dl className="space-y-3 max-w-3xl">
+                            {answerEntries.length === 0 && (
+                                <p className="text-gray-500 text-sm">No answers recorded.</p>
+                            )}
+                            {answerEntries.map(([fid, value]) => {
+                                const resolved = resolveFieldLabel(form ?? { fields: [] }, fid);
+                                const field = fields.find(f => f.id === fid);
+                                const text = formatAnswerValue(field, value);
+                                return (
+                                    <div key={fid} className="grid sm:grid-cols-[220px_1fr] gap-1 sm:gap-4">
+                                        <dt className={`text-xs font-bold uppercase tracking-wide ${resolved.removed ? "text-amber-400" : "text-gray-400"}`}>
+                                            {resolved.label}
+                                        </dt>
+                                        <dd className="text-sm text-gray-200 whitespace-pre-wrap break-words">
+                                            {text || <span className="text-gray-600">Empty</span>}
+                                        </dd>
+                                    </div>
+                                );
+                            })}
+                            {removedEntries.length > 0 && (
+                                <p className="text-xs text-gray-500 pt-1">
+                                    + {removedEntries.length} answer{removedEntries.length > 1 ? "s" : ""} to a field that has since been removed from this form (included in exports).
+                                </p>
+                            )}
+                        </dl>
+                    </td>
+                </tr>
+            )}
+        </>
     );
 }

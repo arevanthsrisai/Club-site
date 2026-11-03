@@ -6,8 +6,9 @@ import {
 } from "@/lib/api";
 import { ClubRole, withBuiltIns, EX_CORE_ROLE } from "@/lib/roles";
 import {
-    ExCoreMember, ExCoreRoleEntry, groupByBatchDesc, batchLabel,
-    academicYearLabel, normalizeYear,
+    ExCoreMember, ExCoreRoleEntry, globalDisplayOrder,
+    latestRoleLabel, normalizeRoleEntry, normalizeYear, sanitizeRoleHistory,
+    tenureLabel, academicYearLabel,
 } from "@/lib/excore";
 import { subscribeToExCoreMembers } from "@/services/excore";
 import { getAuthHeaders } from "@/lib/authHeaders";
@@ -23,22 +24,30 @@ import {
  * (/api/ex-core*), which authorizes against the verified ID token — the
  * permissions the server checks (isCTO or excore.manage) are echoed here as
  * UI gating only; the sidebar hides this page for non-CTO roles.
+ *
+ * A member's core tenure lives entirely in their role-history entries:
+ * each entry records a role with the academic-year start of its FIRST and
+ * LAST year (a two-year tenure spans both of its years, from this single
+ * profile). There is no separate Ex-Core batch year anymore.
  */
 
-interface RoleHistoryRow { year: string; role: string }
+interface RoleHistoryRow { start: string; end: string; role: string }
+
+const DEFAULT_ROLE_ROW = (): RoleHistoryRow => {
+    const y = String(new Date().getFullYear());
+    return { start: y, end: String(Number(y) + 1), role: "" }; // two-year tenure by default
+};
 
 const EMPTY_ADD = {
     sourceAdminUid: "",
     name: "",
-    exCoreBatch: "",
     memberType: "core" as "core" | "activator",
-    history: [] as RoleHistoryRow[],
+    history: [DEFAULT_ROLE_ROW()],
 };
 
 const EMPTY_EDIT = {
     id: "",
     name: "",
-    exCoreBatch: "",
     memberType: "core" as "core" | "activator",
     bio: "",
     linkedin: "",
@@ -47,15 +56,16 @@ const EMPTY_EDIT = {
     history: [] as RoleHistoryRow[],
 };
 
-function toRows(history: ExCoreRoleEntry[] | null | undefined): RoleHistoryRow[] {
-    return (history ?? []).map(e => ({ year: String(e.year), role: e.role }));
+function toRows(history: ExCoreRoleEntry[] | ExCoreMember["roleHistory"] | null | undefined): RoleHistoryRow[] {
+    return (history ?? [])
+        .map(e => normalizeRoleEntry(e))
+        .filter((e): e is ExCoreRoleEntry => e !== null)
+        .map(e => ({ start: String(e.startYear), end: String(e.endYear), role: e.role }));
 }
 
 function validRows(rows: RoleHistoryRow[]): ExCoreRoleEntry[] | null {
-    const out = rows
-        .map(r => ({ year: normalizeYear(r.year), role: r.role.trim() }))
-        .filter((r): r is { year: number; role: string } => r.year !== null && r.role.length > 0);
-    return out.length ? out : null;
+    // Server shapes it the same way: strip invalid rows, dedupe, sort.
+    return sanitizeRoleHistory(rows.map(r => ({ startYear: r.start, endYear: r.end, role: r.role })));
 }
 
 export default function AdminExCorePage() {
@@ -73,8 +83,8 @@ export default function AdminExCorePage() {
     // Edit dialog
     const [editForm, setEditForm] = useState<typeof EMPTY_EDIT | null>(null);
 
-    // Ordering: pending sequence changes per batch id
-    const [orderDirty, setOrderDirty] = useState<Set<string>>(new Set());
+    // Ordering: one global pending sequence for all members
+    const [orderDirty, setOrderDirty] = useState(false);
     const [bumping, setBumping] = useState(false);
 
     useEffect(() => {
@@ -86,6 +96,7 @@ export default function AdminExCorePage() {
         const unsubRoles = subscribeToRoles(setRoles);
         return () => { unsubMembers(); unsubAdmins(); unsubRoles(); };
     }, []);
+
 
     // Team accounts that can be moved into Ex-Core (active, still on the team).
     const movableAccounts = useMemo(
@@ -102,51 +113,48 @@ export default function AdminExCorePage() {
         [admins],
     );
 
-    const batches = useMemo(() => groupByBatchDesc(members), [members]);
+    // One global, persisted sequence; rows render in this order.
+    const orderedMembers = useMemo(() => {
+        const insertion = new Map(members.map((m, i) => [m.id, i] as const));
+        return [...members].sort((a, b) =>
+            (a.displayOrder ?? 0) - (b.displayOrder ?? 0) ||
+            (insertion.get(a.id)! - insertion.get(b.id)!));
+    }, [members]);
 
-    const moveWithinBatch = useCallback((batchId: number, memberId: string, dir: -1 | 1) => {
+    const moveMember = useCallback((memberId: string, dir: -1 | 1) => {
         setMembers(prev => {
-            const seq = prev
-                .filter(m => m.exCoreBatch === batchId)
-                .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
-            const pos = seq.findIndex(m => m.id === memberId);
+            const ids = globalDisplayOrder(prev);
+            const pos = ids.indexOf(memberId);
             const target = pos + dir;
-            if (pos < 0 || target < 0 || target >= seq.length) return prev;
-            const next = seq.slice();
+            if (pos < 0 || target < 0 || target >= ids.length) return prev;
+            const next = ids.slice();
             const [moved] = next.splice(pos, 1);
             next.splice(target, 0, moved);
-            const newOrder = new Map(next.map((m, i) => [m.id, i] as const));
+            const order = new Map(next.map((id, i) => [id, i] as const));
             return prev.map(m => {
-                const ni = newOrder.get(m.id);
+                const ni = order.get(m.id);
                 return ni === undefined ? m : { ...m, displayOrder: ni };
             });
         });
-        setOrderDirty(prev => new Set(prev).add(String(batchId)));
+        setOrderDirty(true);
     }, []);
 
-    const saveBatchOrder = async (batchId: number) => {
-        const seq = members
-            .filter(m => m.exCoreBatch === batchId)
-            .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
-        const order = seq.map(m => m.id);
+    const saveOrder = async () => {
+        const order = globalDisplayOrder(members);
         if (order.length === 0) return;
         setBumping(true);
         try {
             const res = await fetch("/api/ex-core/reorder", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-                body: JSON.stringify({ batch: batchId, order }),
+                body: JSON.stringify({ order }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
                 toast(json.error || "Failed to save the ordering.", "error");
                 return;
             }
-            setOrderDirty(prev => {
-                const next = new Set(prev);
-                next.delete(String(batchId));
-                return next;
-            });
+            setOrderDirty(false);
             toast("Ordering saved — all devices will see this sequence.", "success");
         } catch (err) {
             console.error(err);
@@ -157,16 +165,15 @@ export default function AdminExCorePage() {
     };
 
     const handleAdd = async () => {
-        const batch = normalizeYear(addForm.exCoreBatch);
-        if (batch === null) {
-            toast("Enter a valid Ex-Core batch year (e.g. 2027 = 2027–2028).", "error");
-            return;
-        }
         if (!addForm.sourceAdminUid && !addForm.name.trim()) {
             toast("Choose a team account to move, or enter a name for a standalone member.", "error");
             return;
         }
         const history = validRows(addForm.history);
+        if (!history) {
+            toast("Add the tenure: a role with its start and end year (e.g. 2026 → 2028 = 2026–2028).", "error");
+            return;
+        }
         setSaving(true);
         try {
             const res = await fetch("/api/ex-core", {
@@ -175,9 +182,8 @@ export default function AdminExCorePage() {
                 body: JSON.stringify({
                     sourceAdminUid: addForm.sourceAdminUid || undefined,
                     name: addForm.name.trim() || undefined,
-                    exCoreBatch: batch,
                     memberType: addForm.memberType,
-                    roleHistory: history ?? undefined,
+                    roleHistory: history,
                 }),
             });
             const json = await res.json().catch(() => ({}));
@@ -202,7 +208,6 @@ export default function AdminExCorePage() {
         setEditForm({
             id: m.id,
             name: m.name || "",
-            exCoreBatch: m.exCoreBatch != null ? String(m.exCoreBatch) : "",
             memberType: m.memberType === "activator" ? "activator" : "core",
             bio: m.bio ?? "",
             linkedin: m.socials?.linkedin ?? "",
@@ -214,9 +219,7 @@ export default function AdminExCorePage() {
 
     const handleEditSave = async () => {
         if (!editForm) return;
-        const batch = normalizeYear(editForm.exCoreBatch);
         if (!editForm.name.trim()) { toast("A name is required.", "error"); return; }
-        if (batch === null) { toast("Enter a valid batch year.", "error"); return; }
         setSaving(true);
         try {
             const res = await fetch("/api/ex-core", {
@@ -226,7 +229,6 @@ export default function AdminExCorePage() {
                     id: editForm.id,
                     name: editForm.name.trim(),
                     memberType: editForm.memberType,
-                    exCoreBatch: batch,
                     bio: editForm.bio,
                     socials: {
                         linkedin: editForm.linkedin,
@@ -270,11 +272,81 @@ export default function AdminExCorePage() {
         [roles],
     );
 
+    const renderHistoryRows = (
+        rows: RoleHistoryRow[],
+        setRows: (update: (rows: RoleHistoryRow[]) => RoleHistoryRow[]) => void,
+        required: boolean,
+    ) => (
+        <div>
+            <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                    Role history {required ? "" : "(optional)"}
+                </span>
+                <button
+                    type="button"
+                    onClick={() => setRows(prev => [...prev, DEFAULT_ROLE_ROW()])}
+                    className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
+                >
+                    <Plus size={12} /> Add tenure
+                </button>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+                Start and end are academic-year starts: 2026 → 2028 means the two-year 2026–27 and 2027–28 tenure. The member is displayed in both of those years.
+            </p>
+            <div className="mt-2 space-y-2">
+                {rows.map((row, i) => (
+                    <div key={i} className="flex gap-2 items-center flex-wrap">
+                        <input
+                            type="number"
+                            min={2000}
+                            max={2100}
+                            value={row.start}
+                            onChange={e => setRows(prev => prev.map((r, j) => j === i ? { ...r, start: e.target.value } : r))}
+                            placeholder="Start"
+                            className="w-24 bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            aria-label={`Tenure start year ${i + 1}`}
+                        />
+                        <input
+                            type="number"
+                            min={2000}
+                            max={2100}
+                            value={row.end}
+                            onChange={e => setRows(prev => prev.map((r, j) => j === i ? { ...r, end: e.target.value } : r))}
+                            placeholder="End"
+                            className="w-24 bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            aria-label={`Tenure end year ${i + 1}`}
+                        />
+                        <input
+                            type="text"
+                            list="role-history-opts"
+                            value={row.role}
+                            onChange={e => setRows(prev => prev.map((r, j) => j === i ? { ...r, role: e.target.value } : r))}
+                            placeholder="Role held (e.g. CTO)"
+                            className="flex-1 min-w-[160px] bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            aria-label={`Role held ${i + 1}`}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setRows(prev => prev.filter((_, j) => j !== i))}
+                            className="text-gray-500 hover:text-red-400 p-2"
+                            aria-label={`Remove tenure entry ${i + 1}`}
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                    </div>
+                ))}
+            </div>
+            <datalist id="role-history-opts">
+                {roleOptions.map(r => <option key={r} value={r} />)}
+            </datalist>
+        </div>
+    );
+
     return (
         <div className="pb-12">
             <PageHeader
                 title="Ex-Core"
-                subtitle="Former Core members and Activators, grouped by batch. Public page: /ex-core"
+                subtitle="Former Core members and Activators, by the tenure recorded in their role history. Public page: /ex-core"
                 icon={<History size={26} />}
             />
 
@@ -294,8 +366,18 @@ export default function AdminExCorePage() {
                             {showAdd ? "Cancel" : "Add to Ex-Core"}
                         </button>
                         <p className="text-xs text-gray-500">
-                            {members.length} member{members.length === 1 ? "" : "s"} across {batches.length} batch{batches.length === 1 ? "" : "es"}
+                            {members.length} member{members.length === 1 ? "" : "s"}
                         </p>
+                        {orderDirty && (
+                            <button
+                                type="button"
+                                onClick={saveOrder}
+                                disabled={bumping}
+                                className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50"
+                            >
+                                <Save size={14} /> Save new order
+                            </button>
+                        )}
                     </div>
 
                     {/* ADD FORM */}
@@ -332,92 +414,23 @@ export default function AdminExCorePage() {
                                 </label>
                             </div>
 
-                            <div className="grid sm:grid-cols-2 gap-4">
-                                <label className="block">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ex-Core batch (stepped down in)</span>
-                                    <input
-                                        type="number"
-                                        min={2000}
-                                        max={2100}
-                                        value={addForm.exCoreBatch}
-                                        onChange={e => setAddForm(f => ({ ...f, exCoreBatch: e.target.value }))}
-                                        placeholder="e.g. 2027"
-                                        className="mt-1.5 w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    />
-                                    <span className="text-[11px] text-gray-500 mt-1 block">Academic-year start: 2027 = the 2027–2028 batch.</span>
-                                </label>
+                            <label className="block">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Member category</span>
+                                <select
+                                    value={addForm.memberType}
+                                    onChange={e => setAddForm(f => ({ ...f, memberType: e.target.value as "core" | "activator" }))}
+                                    className="mt-1.5 w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                >
+                                    <option value="core">Core member</option>
+                                    <option value="activator">Activator</option>
+                                </select>
+                            </label>
 
-                                <label className="block">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Member category</span>
-                                    <select
-                                        value={addForm.memberType}
-                                        onChange={e => setAddForm(f => ({ ...f, memberType: e.target.value as "core" | "activator" }))}
-                                        className="mt-1.5 w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    >
-                                        <option value="core">Core member</option>
-                                        <option value="activator">Activator</option>
-                                    </select>
-                                </label>
-                            </div>
-
-                            {/* Role history seed */}
-                            <div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Role history (optional)</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => setAddForm(f => ({ ...f, history: [...f.history, { year: String(new Date().getFullYear()), role: "" }] }))}
-                                        className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
-                                    >
-                                        <Plus size={12} /> Add year
-                                    </button>
-                                </div>
-                                {addForm.history.length === 0 && (
-                                    <p className="text-[11px] text-gray-500 mt-1">The years and roles they held, newest first. Independent of the batch year.</p>
-                                )}
-                                <div className="mt-2 space-y-2">
-                                    {addForm.history.map((row, i) => (
-                                        <div key={i} className="flex gap-2 items-center">
-                                            <input
-                                                type="number"
-                                                min={2000}
-                                                max={2100}
-                                                value={row.year}
-                                                onChange={e => setAddForm(f => ({
-                                                    ...f,
-                                                    history: f.history.map((r, j) => j === i ? { ...r, year: e.target.value } : r),
-                                                }))}
-                                                placeholder="Year"
-                                                className="w-24 bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                                aria-label="Role year"
-                                            />
-                                            <input
-                                                type="text"
-                                                list="role-history-opts"
-                                                value={row.role}
-                                                onChange={e => setAddForm(f => ({
-                                                    ...f,
-                                                    history: f.history.map((r, j) => j === i ? { ...r, role: e.target.value } : r),
-                                                }))}
-                                                placeholder="Role held (e.g. CTO)"
-                                                className="flex-1 bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                                aria-label="Role held"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => setAddForm(f => ({ ...f, history: f.history.filter((_, j) => j !== i) }))}
-                                                className="text-gray-500 hover:text-red-400 p-2"
-                                                aria-label={`Remove role entry ${i + 1}`}
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                                <datalist id="role-history-opts">
-                                    {roleOptions.map(r => <option key={r} value={r} />)}
-                                </datalist>
-                            </div>
+                            {renderHistoryRows(
+                                addForm.history,
+                                update => setAddForm(f => ({ ...f, history: update(f.history) })),
+                                true,
+                            )}
 
                             <button
                                 type="button"
@@ -431,107 +444,86 @@ export default function AdminExCorePage() {
                         </div>
                     )}
 
-                    {/* BATCH SECTIONS */}
-                    {batches.length === 0 ? (
+                    {/* MEMBER LIST (one global persisted order) */}
+                    {orderedMembers.length === 0 ? (
                         <div className="text-center py-20 bg-white/5 rounded-2xl border border-dashed border-white/10">
                             <Users size={36} className="mx-auto text-gray-600 mb-4" aria-hidden="true" />
                             <p className="text-gray-400 font-medium">No Ex-Core members yet.</p>
                             <p className="text-gray-600 text-sm mt-1">Use “Add to Ex-Core” to move a team account here or add a standalone member.</p>
                         </div>
                     ) : (
-                        batches.map(group => {
-                            // On-screen sequence for this batch (custom order wins).
-                            const seq = members
-                                .filter(m => m.exCoreBatch === group.year)
-                                .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
-                            const dirty = orderDirty.has(String(group.year));
-                            const typeLabel = (m: ExCoreMember) => (m.memberType === "activator" ? "Activator" : "Core");
-
-                            return (
-                                <section key={group.year} className="mb-10" aria-label={group.label}>
-                                    <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                                        <h2 className="text-xl font-bold text-blue-400">{batchLabel(group.year)}</h2>
-                                        {dirty && (
+                        <div className="space-y-2">
+                            {orderedMembers.map((m, i) => {
+                                const history = toRows(m.roleHistory);
+                                return (
+                                    <div
+                                        key={m.id}
+                                        className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 hover:border-white/20 transition-colors"
+                                    >
+                                        {/* Reorder controls */}
+                                        <div className="flex flex-col shrink-0">
                                             <button
                                                 type="button"
-                                                onClick={() => saveBatchOrder(group.year)}
-                                                disabled={bumping}
-                                                className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50"
+                                                onClick={() => moveMember(m.id, -1)}
+                                                disabled={i === 0}
+                                                className="text-gray-500 hover:text-white disabled:opacity-20 p-0.5"
+                                                aria-label={`Move ${String(m.name || "member")} up`}
                                             >
-                                                <Save size={14} /> Save new order
+                                                <ChevronUp size={14} />
                                             </button>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        {seq.map((m, i) => (
-                                            <div
-                                                key={m.id}
-                                                className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 hover:border-white/20 transition-colors"
+                                            <button
+                                                type="button"
+                                                onClick={() => moveMember(m.id, +1)}
+                                                disabled={i === orderedMembers.length - 1}
+                                                className="text-gray-500 hover:text-white disabled:opacity-20 p-0.5"
+                                                aria-label={`Move ${m.name} down`}
                                             >
-                                                {/* Reorder controls */}
-                                                <div className="flex flex-col shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => moveWithinBatch(group.year, m.id, -1)}
-                                                        disabled={i === 0}
-                                                        className="text-gray-500 hover:text-white disabled:opacity-20 p-0.5"
-                                                        aria-label={`Move ${String(m.name || "member")} up`}
-                                                    >
-                                                        <ChevronUp size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => moveWithinBatch(group.year, m.id, +1)}
-                                                        disabled={i === seq.length - 1}
-                                                        className="text-gray-500 hover:text-white disabled:opacity-20 p-0.5"
-                                                        aria-label={`Move ${m.name} down`}
-                                                    >
-                                                        <ChevronDown size={14} />
-                                                    </button>
-                                                </div>
+                                                <ChevronDown size={14} />
+                                            </button>
+                                        </div>
 
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="text-sm font-bold text-white truncate">
-                                                        {String(m.name || m.email || "Member")}
-                                                        {m.linkedUserId && (
-                                                            <span className="ml-2 text-[10px] font-semibold text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider align-middle">
-                                                                Account linked
-                                                            </span>
-                                                        )}
-                                                    </p>
-                                                    <p className="text-xs text-gray-500 truncate">
-                                                        {typeLabel(m)}
-                                                        {(m.roleHistory ?? []).length > 0 && (
-                                                            <> · {m.roleHistory.map(h => `${academicYearLabel(h.year)} ${h.role}`).join(", ")}</>
-                                                        )}
-                                                    </p>
-                                                </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-bold text-white truncate">
+                                                {String(m.name || m.email || "Member")}
+                                                {m.linkedUserId && (
+                                                    <span className="ml-2 text-[10px] font-semibold text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider align-middle">
+                                                        Account linked
+                                                    </span>
+                                                )}
+                                            </p>
+                                            <p className="text-xs text-gray-500 truncate">
+                                                {m.memberType === "activator" ? "Activator" : "Core"}
+                                                {history.length > 0 && (
+                                                    <> · {history.map(r => `${tenureLabel(r.start, r.end)} ${r.role}`).join(", ")}</>
+                                                )}
+                                            </p>
+                                        </div>
 
-                                                <div className="flex items-center gap-1.5 shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openEdit(m)}
-                                                        className="p-2 text-gray-400 hover:text-blue-400 transition-colors"
-                                                        aria-label={`Edit ${String(m.name || "member")}`}
-                                                    >
-                                                        <Edit3 size={16} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDelete(m)}
-                                                        className="p-2 text-gray-400 hover:text-red-400 transition-colors"
-                                                        aria-label={`Remove ${String(m.name || "member")} from Ex-Core`}
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => openEdit(m)}
+                                                className="p-2 text-gray-400 hover:text-blue-400 transition-colors"
+                                                aria-label={`Edit ${String(m.name || "member")}`}
+                                            >
+                                                <Edit3 size={16} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDelete(m)}
+                                                className="p-2 text-gray-400 hover:text-red-400 transition-colors"
+                                                aria-label={`Remove ${String(m.name || "member")} from Ex-Core`}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
                                     </div>
-                                </section>
-                            );
-                        })
+                                );
+                            })}
+                            <p className="text-[11px] text-gray-600 pt-1">
+                                Ordering is one global sequence; the public year sections keep this running order.
+                            </p>
+                        </div>
                     )}
                 </>
             )}
@@ -572,30 +564,17 @@ export default function AdminExCorePage() {
                                 />
                             </label>
 
-                            <div className="grid sm:grid-cols-2 gap-4">
-                                <label className="block">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ex-Core batch</span>
-                                    <input
-                                        type="number"
-                                        min={2000}
-                                        max={2100}
-                                        value={editForm.exCoreBatch}
-                                        onChange={e => setEditForm(f => f && { ...f, exCoreBatch: e.target.value })}
-                                        className="mt-1.5 w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    />
-                                </label>
-                                <label className="block">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Member category</span>
-                                    <select
-                                        value={editForm.memberType}
-                                        onChange={e => setEditForm(f => f && { ...f, memberType: e.target.value as "core" | "activator" })}
-                                        className="mt-1.5 w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    >
-                                        <option value="core">Core member</option>
-                                        <option value="activator">Activator</option>
-                                    </select>
-                                </label>
-                            </div>
+                            <label className="block">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Member category</span>
+                                <select
+                                    value={editForm.memberType}
+                                    onChange={e => setEditForm(f => f && { ...f, memberType: e.target.value as "core" | "activator" })}
+                                    className="mt-1.5 w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                >
+                                    <option value="core">Core member</option>
+                                    <option value="activator">Activator</option>
+                                </select>
+                            </label>
 
                             <label className="block">
                                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Bio (public)</span>
@@ -641,64 +620,15 @@ export default function AdminExCorePage() {
                                 </label>
                             </div>
 
-                            {/* Role history edit */}
-                            <div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Role history</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditForm(f => f && { ...f, history: [...f.history, { year: String(new Date().getFullYear()), role: "" }] })}
-                                        className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1"
-                                    >
-                                        <Plus size={12} /> Add year
-                                    </button>
-                                </div>
-                                <div className="mt-2 space-y-2">
-                                    {editForm.history.map((row, i) => (
-                                        <div key={i} className="flex gap-2 items-center">
-                                            <input
-                                                type="number"
-                                                min={2000}
-                                                max={2100}
-                                                value={row.year}
-                                                onChange={e => setEditForm(f => f && {
-                                                    ...f,
-                                                    history: f.history.map((r, j) => j === i ? { ...r, year: e.target.value } : r),
-                                                })}
-                                                placeholder="Year"
-                                                className="w-24 bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                                aria-label="Role year"
-                                            />
-                                            <input
-                                                type="text"
-                                                list="role-history-opts"
-                                                value={row.role}
-                                                onChange={e => setEditForm(f => f && {
-                                                    ...f,
-                                                    history: f.history.map((r, j) => j === i ? { ...r, role: e.target.value } : r),
-                                                })}
-                                                placeholder="Role held"
-                                                className="flex-1 bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                                aria-label="Role held"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => setEditForm(f => f && { ...f, history: f.history.filter((_, j) => j !== i) })}
-                                                className="text-gray-500 hover:text-red-400 p-2"
-                                                aria-label={`Remove role entry ${i + 1}`}
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {editForm.id === "" ? null : (
-                                <p className="text-[11px] text-gray-500">
-                                    Ordering is managed with the arrows on the list (then “Save new order”), not here.
-                                </p>
+                            {renderHistoryRows(
+                                editForm.history,
+                                update => setEditForm(f => f && { ...f, history: update(f.history) }),
+                                false,
                             )}
+
+                            <p className="text-[11px] text-gray-500">
+                                Ordering is managed with the arrows on the list (then “Save new order”), not here.
+                            </p>
 
                             <div className="flex gap-3 pt-2">
                                 <button
@@ -726,7 +656,7 @@ export default function AdminExCorePage() {
             {/* Owner self-edit hint (CTO's own Ex-Core card, if any) */}
             <p className="text-[11px] text-gray-600 mt-6 flex items-center gap-1.5 max-w-xl">
                 <ArrowLeftRight size={12} aria-hidden="true" />
-                Members with a linked account can edit their own name, photo, bio and links on Ex-Core via /api/ex-core/self — batch, category, role history and ordering stay manager-controlled.
+                Members with a linked account can edit their own name, photo, bio and links on Ex-Core via /api/ex-core/self — category, role history and ordering stay manager-controlled.
             </p>
         </div>
     );

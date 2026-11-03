@@ -4,7 +4,7 @@ import { AdminProfile, PendingRegistration } from "@/types";
 import { logActivity } from "./audit";
 import { deleteUserData } from "./users";
 import { isPasswordStrong } from "@/lib/schemas";
-import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, DEFAULT_ROLES } from "@/lib/roles";
+import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, DEFAULT_ROLES, EX_CORE_ROLE } from "@/lib/roles";
 import { normalizeEmail } from "@/lib/normalizeEmail";
 import { assertEmailNotInUse } from "@/services/emails";
 
@@ -39,6 +39,10 @@ async function checkRoleLimit(role: string): Promise<boolean> {
 
 export async function checkTenure(admin: AdminProfile) {
     if (admin.role === "CTO") return false; // CTO is immune to tenure expiry
+    // Ex-Core accounts NEVER expire automatically: they are permanent
+    // hand-off records (their club tenure already ended when they moved to
+    // Ex-Core). Their approvedAt timestamp must never trigger deletion.
+    if (admin.role === EX_CORE_ROLE.id) return false;
 
     const startDate = admin.approvedAt || admin.createdAt;
     if (!startDate) return;

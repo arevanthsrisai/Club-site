@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminContext, hasPermission, logServerActivity, unauthorized } from "@/lib/serverAuthz";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
-    normalizeYear, sanitizeRoleHistory, ExCoreMemberType,
+    sanitizeRoleHistory, ExCoreMemberType,
 } from "@/lib/excore";
 import { DEFAULT_ROLE_ID, EX_CORE_ROLE } from "@/lib/roles";
 import { safeHttpUrl, safePhotoUrl } from "@/lib/publicUrl";
@@ -16,8 +16,13 @@ import { Timestamp, FieldValue } from "firebase-admin/firestore";
  *          public profile fields).
  * POST   → add a member: move an existing team account (keeps sign-in working
  *          and links the profile for self-editing) or create a standalone one.
- * PATCH  → edit any member profile (batch, classification, role history,
- *          ordering-relevant fields, bio/socials/photo, linked account).
+ * PATCH  → edit any member profile (tenure/role history, classification,
+ *          bio/socials/photo, linked account).
+ *
+ * TENURE: a member's core tenure is recorded purely in roleHistory entries
+ * ({ startYear, endYear, role }) — no separate batch year exists anymore.
+ * displayOrder is one GLOBAL sequence across all members (year sections
+ * filter it), so new members append to the end of that global order.
  * DELETE → remove a member from Ex-Core (and free their linked account again).
  *
  * Authorization: isCTO OR the "excore.manage" permission, resolved server-side
@@ -45,21 +50,20 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json().catch(() => ({}));
-        const batch = normalizeYear(body?.exCoreBatch);
-        if (batch === null) {
-            return NextResponse.json(
-                { error: "A valid Ex-Core batch (academic-year start, e.g. 2027) is required." },
-                { status: 400 },
-            );
-        }
         const memberType: ExCoreMemberType = body?.memberType === "activator" ? "activator" : "core";
         const sourceAdminUid = typeof body?.sourceAdminUid === "string" ? body.sourceAdminUid.trim() : "";
         const standaloneName = typeof body?.name === "string" ? body.name.trim() : "";
 
         const db = getAdminFirestore();
 
-        // Optional role-history seed (validated + deduped + sorted server-side).
+        // Required tenure seed (validated + deduped + sorted server-side).
         const roleHistory = sanitizeRoleHistory(body?.roleHistory);
+        if (!roleHistory) {
+            return NextResponse.json(
+                { error: "A valid role history is required: at least one entry with a role and its start and end year (e.g. 2026–2028)." },
+                { status: 400 },
+            );
+        }
 
         if (!sourceAdminUid && !standaloneName) {
             return NextResponse.json({ error: "Provide a team account or a name." }, { status: 400 });
@@ -104,10 +108,8 @@ export async function POST(request: NextRequest) {
                 profile = { name: standaloneName, photoURL: null, socials: {}, bio: "", linkedUserId: null };
             }
 
-            // Persisted custom ordering: append at the end of the batch.
-            const siblings = await tx.get(
-                db.collection("ex_core_members").where("exCoreBatch", "==", batch),
-            );
+            // Persisted custom ordering: append at the end of the global sequence.
+            const siblings = await tx.get(db.collection("ex_core_members"));
             const nextOrder = siblings.docs.reduce(
                 (max, d) => Math.max(max, Number((d.data() as { displayOrder?: number }).displayOrder ?? -1) + 1),
                 0,
@@ -117,8 +119,7 @@ export async function POST(request: NextRequest) {
             tx.set(ref, {
                 ...profile,
                 memberType,
-                exCoreBatch: batch,
-                roleHistory: roleHistory ?? [],
+                roleHistory,
                 displayOrder: nextOrder,
                 movedAt: Timestamp.now(),
             });
@@ -140,7 +141,7 @@ export async function POST(request: NextRequest) {
         await logServerActivity(ctx.uid, ctx.name, "EXCORE_MEMBER_ADD", {
             memberId: result,
             sourceAdminUid: sourceAdminUid || null,
-            exCoreBatch: batch,
+            roleHistory,
             memberType,
         });
 
@@ -210,11 +211,10 @@ export async function PATCH(request: NextRequest) {
             update.memberType = body.memberType === "activator" ? "activator" : "core";
         }
         if (body?.exCoreBatch !== undefined) {
-            const batch = normalizeYear(body.exCoreBatch);
-            if (batch === null) {
-                return NextResponse.json({ error: "Invalid Ex-Core batch." }, { status: 400 });
-            }
-            update.exCoreBatch = batch;
+            return NextResponse.json(
+                { error: "The Ex-Core batch year is no longer supported — manage the tenure through role history." },
+                { status: 400 },
+            );
         }
         if (body?.roleHistory !== undefined) {
             const history = sanitizeRoleHistory(body.roleHistory);

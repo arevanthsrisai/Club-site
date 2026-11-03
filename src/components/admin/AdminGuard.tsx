@@ -45,7 +45,15 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
     // Public auth pages
     const isAuthPage = pathname === "/admin/login" || pathname === "/admin/signup";
     const onboardingAdminOffPage = !!user && profile?.status === "onboarding" && !isAuthPage && pathname !== "/admin/onboarding";
-    const activeAdminOnOnboarding = !!user && !!profile?.role && profile?.status !== "onboarding" && pathname === "/admin/onboarding";
+    // Only approved admins bounce off the onboarding page back to the dashboard.
+    // Pending accounts may visit /admin/onboarding: it is the Ex-Core self-signup
+    // path (the server route there flips "pending" → ExCoreMember and starts
+    // onboarding). They still cannot reach the dashboard until they do that or
+    // an admin approves them.
+    const activeAdminOnOnboarding = !!user && !!profile?.role && profile?.role !== "pending" && profile?.status !== "onboarding" && pathname === "/admin/onboarding";
+    // Still-pending accounts may view the onboarding page itself; everything else
+    // behind the guard needs an approved role.
+    const pendingOnOnboarding = !!user && profile?.role === "pending" && pathname === "/admin/onboarding";
 
     // Redirects must never run during render: schedule them in an effect and
     // render nothing until they land.
@@ -84,7 +92,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
     }
 
     // Handle Onboarding (redirects already scheduled in the effect above)
-    if (profile?.status === "onboarding") {
+    if (profile?.status === "onboarding" || pendingOnOnboarding) {
         return <>{children}</>;
     }
 
@@ -101,10 +109,16 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
                         Your account has been created but requires administrator approval.
                         Please contact the team to activate your access.
                     </p>
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-3 min-w-[15rem]">
+                        <button
+                            onClick={() => router.push("/admin/onboarding")}
+                            className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
+                        >
+                            Continue as Ex-Core Member
+                        </button>
                         <button
                             onClick={() => window.location.reload()}
-                            className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
+                            className="w-full py-2 bg-white/5 text-gray-300 hover:text-white rounded-lg transition-colors"
                         >
                             Check Status Again
                         </button>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/serverAuthz";
 import { saveRole as saveRoleToFirestore, deleteRole as deleteRoleFromFirestore } from "@/services/roles";
-import { CTO_ROLE, DEFAULT_ROLE_ID } from "@/lib/roles";
+import { CTO_ROLE, DEFAULT_ROLE_ID, EX_CORE_ROLE } from "@/lib/roles";
 
 /**
  * Server-side API for CTO-only role operations.
@@ -82,8 +82,17 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // Ex-Core Member must never gain permissions: write an explicit empty
+        // set so even a stale Firestore copy is wiped. Other roles keep the
+        // existing behavior (permissions are managed by the UI toggle save).
         // Persist the role
-        await saveRoleToFirestore({ id, label: trimmedLabel, rank: nRank, limit: nLimit }, ctx.uid, ctx.name || "Admin");
+        await saveRoleToFirestore(
+            id === EX_CORE_ROLE.id
+                ? { id, label: trimmedLabel, rank: nRank, limit: nLimit, permissions: [] }
+                : { id, label: trimmedLabel, rank: nRank, limit: nLimit },
+            ctx.uid,
+            ctx.name || "Admin",
+        );
 
         // Audit log
         // @ts-ignore - logActivity accepts various params

@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import { useAuth } from "@/lib/auth";
+import { useToast } from "@/components/ui/Toast";
+import { roleLabel } from "@/lib/roles";
+import { isBirthdayToday, parseDateString } from "@/lib/birthdays";
 import {
     subscribeToEvents,
     subscribeToAllAdmins,
@@ -10,8 +15,11 @@ import {
     getEventRegistrationCounts,
     getResources,
     subscribeToMessages,
+    subscribeToRoles,
 } from "@/lib/api";
-import type { ContactMessage, Event, PendingRegistration, Resource } from "@/types";
+import type { AdminProfile, ContactMessage, Event, PendingRegistration, Resource } from "@/types";
+import type { ClubRole } from "@/lib/roles";
+import { Cake, CheckCircle } from "lucide-react";
 import {
     attentionItems,
     upcomingEvents,
@@ -86,6 +94,8 @@ export default function AdminDashboard() {
                 pendingCount={pendingRegs?.length ?? null}
                 messages={messages}
             />
+
+            <BirthdayBanner />
 
             <ActionQueue items={queue} ready={!!events && !!pendingRegs} />
 
@@ -464,6 +474,128 @@ function ResourcePanel() {
 }
 
 /* ── Shared chrome ──────────────────────────────────────────────────────── */
+
+/* ── Birthdays ───────────────────────────────────────────────────────────── */
+
+/**
+ * Birthday announcement for the dashboard, driven by each member's stored DOB.
+ * It is a pure projection of the live admins snapshot: birthdays are matched
+ * against the viewer's local calendar (leap-day Feb 29 → Feb 28 in common
+ * years), only first-name + club role + photo appear, and no birth year or full
+ * DOB is ever rendered. Nothing is stored, so the same member can never be
+ * double-announced and the list repeats on every visit until the date passes.
+ */
+function BirthdayBanner() {
+    const [admins, setAdmins] = useState<AdminProfile[] | null>(null);
+    const [roles, setRoles] = useState<ClubRole[]>([]);
+    const { user } = useAuth();
+    const [sending, setSending] = useState(false);
+    const [wishesSent, setWishesSent] = useState(false);
+    const toast = useToast();
+
+    useEffect(() => {
+        const unsubs = [
+            subscribeToAllAdmins(setAdmins),
+            subscribeToRoles(setRoles),
+        ];
+        return () => unsubs.forEach(unsub => unsub());
+    }, []);
+
+    const birthdays = useMemo(() => {
+        if (!admins) return [];
+        const now = new Date();
+        return admins.filter(a => a.status === "active" && isBirthdayToday(a.dob, now));
+    }, [admins]);
+
+    if (!admins) return null;
+    if (birthdays.length === 0 && !wishesSent) return null;
+
+    const now = new Date();
+    const dayLabel = (dob?: string) => {
+        const parts = parseDateString(dob);
+        if (!parts) return undefined;
+        return new Date(now.getFullYear(), parts.month - 1, parts.day)
+            .toLocaleDateString(undefined, { month: "long", day: "numeric" });
+    };
+
+    const sendWishes = async () => {
+        if (!user) return;
+        setSending(true);
+        try {
+            const res = await fetch("/api/birthday-send", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${await user.getIdToken()}`,
+                },
+            });
+            const payload = await res.json().catch(() => null);
+            if (!res.ok || !payload?.success) {
+                throw new Error(payload?.error || "Could not send birthday wishes.");
+            }
+            setWishesSent(true);
+            toast.success(`Birthday wishes sent to ${payload.sent ?? 0} member${payload.sent === 1 ? "" : "s"}.`);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Could not send birthday wishes.");
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <section
+            aria-labelledby="birthdays-heading"
+            className="rounded-2xl border border-pink-500/30 bg-pink-500/10 p-5"
+        >
+            <div className="flex items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-2">
+                    <Cake size={16} className="text-pink-400" aria-hidden="true" />
+                    <h2 id="birthdays-heading" className="text-sm font-bold uppercase tracking-wider text-pink-300">
+                        Birthdays Today
+                    </h2>
+                </div>
+                {birthdays.length > 0 && user && (!wishesSent) && (
+                    <button
+                        type="button"
+                        onClick={sendWishes}
+                        disabled={sending}
+                        className="inline-flex items-center gap-2 rounded-lg border border-pink-500/30 bg-pink-500/10 px-3 py-2 text-xs font-semibold text-pink-300 hover:bg-pink-500/20 transition-colors disabled:opacity-60"
+                        aria-label={`Send birthday wishes to ${birthdays.length} member${birthdays.length === 1 ? "" : "s"}`}
+                    >
+                        {sending ? <Cake size={13} className="animate-spin" aria-hidden="true" /> : <Cake size={13} aria-hidden="true" />}
+                        {sending ? "Sending wishes…" : `Send Wishes (${birthdays.length})`}
+                    </button>
+                )}
+                {wishesSent && (
+                    <span className="flex items-center gap-2 text-xs text-green-400">
+                        <CheckCircle size={13} aria-hidden="true" /> Wishes sent today
+                    </span>
+                )}
+            </div>
+            {birthdays.length > 0 && (
+                <ul className="space-y-3">
+                    {birthdays.map(a => (
+                        <li key={a.uid} className="flex items-center gap-3">
+                            <span className="w-10 h-10 rounded-full overflow-hidden bg-black/40 border border-white/10 shrink-0 relative" aria-hidden="true">
+                                {a.photoURL
+                                    ? <Image src={a.photoURL} alt="" fill sizes="40px" className="object-cover" />
+                                    : <span className="absolute inset-0 grid place-items-center text-gray-400 font-bold">{(a.displayName || a.email)[0].toUpperCase()}</span>}
+                            </span>
+                            <div className="min-w-0">
+                                <p className="font-bold text-white truncate">
+                                    Happy Birthday, {a.displayName || a.email}! 🎂
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                    {roleLabel(roles, a.role)}{dayLabel(a.dob) ? ` · ${dayLabel(a.dob)}` : ""}
+                                </p>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    );
+}
 
 function PanelStat({ label, value, hint, star }: { label: string; value: number; hint: string; star?: boolean }) {
     return (

@@ -5,6 +5,8 @@
 // Mass-assignment protection: schema is strict() — fields outside this list
 // (role, admin flags, uid, timestamps, auth metadata) are rejected, so a
 // profile edit can never grant or revoke administrative privileges.
+//
+// Verification comes from Firebase emailVerified, not from this form.
 import { z } from "zod";
 
 export const studentPatchSchema = z.object({
@@ -19,7 +21,6 @@ export const studentPatchSchema = z.object({
             mobile: z.string().trim().max(15, "Mobile number must be under 15 characters")
                 .regex(/^\+?[0-9\- ]*$/, "Mobile number can only contain digits, spaces, hyphens and a leading +").optional(),
             hosteller: z.boolean().optional(),
-            isVerified: z.boolean().optional(),
         })
         .strict(), // unknown fields rejected
 });

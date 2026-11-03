@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/serverAuthz";
 import { saveRole as saveRoleToFirestore, deleteRole as deleteRoleFromFirestore } from "@/services/roles";
+import { EX_CORE_ROLE } from "@/lib/roles";
 
 /**
  * Server-side API for CTO-only role operations.
@@ -66,8 +67,19 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // Ex-Core Member must never gain permissions: write an explicit empty
+        // set so even a stale Firestore copy is wiped. Other roles keep the
+        // existing behavior (permissions are managed by the UI toggle save).
+        const isExCoreMember = id === EX_CORE_ROLE.id;
+
         // Persist the role
-        await saveRoleToFirestore({ id, label: trimmedLabel, rank: nRank, limit: nLimit }, ctx.uid, ctx.name || "Admin");
+        await saveRoleToFirestore(
+            isExCoreMember
+                ? { id, label: trimmedLabel, rank: nRank, limit: nLimit, permissions: [] }
+                : { id, label: trimmedLabel, rank: nRank, limit: nLimit },
+            ctx.uid,
+            ctx.name || "Admin",
+        );
 
         return NextResponse.json({ success: true });
     } catch (err: any) {
@@ -91,8 +103,9 @@ export async function DELETE(request: NextRequest) {
             return NextResponse.json({ error: "Only the CTO can delete roles" }, { status: 403 });
         }
 
-        if (id === "CTO" || id === "Activator") {
-            return NextResponse.json({ error: "Cannot delete the CTO or Activator role" }, { status: 400 });
+        // CTO, Activator and Ex-Core Member cannot be deleted.
+        if (id === "CTO" || id === "Activator" || id === EX_CORE_ROLE.id) {
+            return NextResponse.json({ error: "Cannot delete the CTO, Activator or Ex-Core Member role" }, { status: 400 });
         }
 
         // Delete the role

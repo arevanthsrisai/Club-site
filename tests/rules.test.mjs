@@ -26,6 +26,9 @@ before(async () => {
     await setDoc(doc(db, 'users/s1'), { uid: 's1', mobile: '9999999999' });
     await setDoc(doc(db, 'users/s2'), { uid: 's2', mobile: '8888888888' });
     await setDoc(doc(db, 'events/e1'), { title: 'E1', registrationStatus: 'open' });
+    await setDoc(doc(db, 'forms/f_pub'), { title: 'Public Form', status: 'published', fields: [] });
+    await setDoc(doc(db, 'forms/f_draft'), { title: 'Draft Form', status: 'draft', fields: [] });
+    await setDoc(doc(db, 'form_submissions/fp_stu'), { formId: 'f_pub', answers: { a: 'x' }, userName: 'Stu', userEmail: 's@example.com' });
     await setDoc(doc(db, 'event_secrets/e1'), { code: '1234' });
     await setDoc(doc(db, 'registrations/e1_s1'), { eventId: 'e1', userId: 's1', participantIds: ['s1', 's3'], status: 'registered' });
     await setDoc(doc(db, 'invitations/e1_s3'), { eventId: 'e1', targetUserId: 's3', senderId: 's1', registrationId: 'e1_s1', status: 'pending' });
@@ -151,7 +154,7 @@ test('message workflow: solved flag and reminders are admin-only', async () => {
 
 test('ex-core profiles: public read, CTO-only client writes, others blocked', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => {
-    await setDoc(doc(ctx.firestore(), 'ex_core_members/m1'), { name: 'Old', memberType: 'core', exCoreBatch: 2026, displayOrder: 0 });
+    await setDoc(doc(ctx.firestore(), 'ex_core_members/m1'), { name: 'Old', memberType: 'core', roleHistory: [{ startYear: 2026, endYear: 2027, role: 'CTO' }], displayOrder: 0 });
   });
   // Anyone — even signed out — can read the public profiles.
   await assertSucceeds(getDoc(doc(fs(null), 'ex_core_members/m1')));
@@ -162,9 +165,26 @@ test('ex-core profiles: public read, CTO-only client writes, others blocked', as
   await assertFails(setDoc(doc(fs('s1'), 'ex_core_members/m2'), { name: 'S' }));
   await assertFails(updateDoc(doc(fs('act'), 'ex_core_members/m1'), { name: 'Hacked' }));
   await assertFails(deleteDoc(doc(fs('act'), 'ex_core_members/m1')));
-  await assertSucceeds(setDoc(doc(fs('cto'), 'ex_core_members/m2'), { name: 'CTO made me', memberType: 'activator', exCoreBatch: 2027, displayOrder: 0 }));
+  await assertSucceeds(setDoc(doc(fs('cto'), 'ex_core_members/m2'), { name: 'CTO made me', memberType: 'activator', roleHistory: [{ startYear: 2027, endYear: 2028, role: 'CTO' }], displayOrder: 0 }));
   await assertSucceeds(updateDoc(doc(fs('cto'), 'ex_core_members/m1'), { name: 'Old' }));
   await assertSucceeds(deleteDoc(doc(fs('cto'), 'ex_core_members/m2')));
+});
+
+test('forms: published public read, draft admin-only, no client writes', async () => {
+  await assertSucceeds(getDoc(doc(fs(null), 'forms/f_pub')));
+  await assertSucceeds(getDoc(doc(fs('s1'), 'forms/f_pub')));
+  await assertFails(getDoc(doc(fs(null), 'forms/f_draft')));
+  await assertFails(getDoc(doc(fs('s1'), 'forms/f_draft')));
+  // Submissions contain personal data — admins only.
+  await assertFails(getDoc(doc(fs('s1'), 'form_submissions/fp_stu')));
+  await assertFails(getDocs(collection(fs('s1'), 'form_submissions')));
+  await assertSucceeds(getDoc(doc(fs('act'), 'form_submissions/fp_stu')));
+  await assertSucceeds(getDoc(doc(fs('act'), 'forms/f_draft')));
+  // Every write goes through the server API (Admin SDK) — clients are denied.
+  await assertFails(setDoc(doc(fs('cto'), 'forms/f_new'), { title: 'X', status: 'draft' }));
+  await assertFails(updateDoc(doc(fs('cto'), 'forms/f_pub'), { status: 'closed' }));
+  await assertFails(deleteDoc(doc(fs('cto'), 'forms/f_pub')));
+  await assertFails(setDoc(doc(fs('s1'), 'form_submissions/x1'), { answers: {} }));
 });
 
 test('storage writes are admin-only except own avatar', async () => {

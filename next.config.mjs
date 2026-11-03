@@ -32,13 +32,16 @@ const nextConfig = {
         // Allow local /api/gallery/media endpoint with key query parameter
         // for serving gallery/profile images from private B2 bucket.
         // Path must match exactly; query string must include 'key'.
-        // Allow local public images (from /public/images)
+        // Allow local public images (from /public/images, /public/avatars)
         localPatterns: [
             {
                 pathname: '/api/gallery/media',
             },
             {
                 pathname: '/images/**',
+            },
+            {
+                pathname: '/avatars/**',
             },
         ],
     },

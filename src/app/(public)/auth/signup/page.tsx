@@ -6,6 +6,19 @@ import { signUp } from "@/lib/auth";
 import { createUserProfile } from "@/lib/api";
 import Link from "next/link";
 import { Mail, Lock, ArrowRight, AlertTriangle } from "lucide-react";
+
+/**
+ * Extract the roll number from a student's college email.
+ *
+ * Email local part format: av.sc.u4cse26001
+ * Roll number format: AV.SC.U4CSE26001
+ */
+function extractRollNo(email: string): string | null {
+    const local = email.split("@")[0];
+    const parts = local.split(".");
+    if (parts.length !== 3) return null;
+    return parts.map(p => p.toUpperCase()).join(".");
+}
 import { sendEmailVerification, User } from "firebase/auth";
 import { isPasswordStrong } from "@/lib/schemas";
 import { PasswordStrengthIndicator } from "@/components/ui/PasswordStrengthIndicator";
@@ -63,7 +76,9 @@ export default function SignupPage() {
             await sendEmailVerification(user);
 
             // Create User Profile (Not Admin Profile)
-            await createUserProfile(user.uid, normalizedEmail);
+            // Auto-extract roll number from college email: av.sc.u4cse26001 → AV.SC.U4CSE26001
+            const rollNo = extractRollNo(normalizedEmail);
+            await createUserProfile(user.uid, normalizedEmail, rollNo ?? undefined);
 
             router.push("/auth/verify-email");
         } catch (err: any) {

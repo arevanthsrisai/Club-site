@@ -45,6 +45,7 @@ export async function GET(request: Request) {
 
     try {
         const db = getAdminFirestore();
+        const auth = getAdminAuth();
         const url = new URL(request.url);
         const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
         const pageSize = Math.min(50, Math.max(1, Number.parseInt(url.searchParams.get("pageSize") || "12", 10) || 12));
@@ -53,7 +54,36 @@ export async function GET(request: Request) {
         const sort = url.searchParams.get("sort") || "newest"; // newest|oldest|name|email
 
         const snap = await db.collection("users").limit(MAX_SCAN).get();
-        let rows = snap.docs.map(d => studentFromDoc(d.id, d.data()));
+
+        // Sync verification status from Firebase Auth — isVerified reflects
+        // emailVerified, not admin review. Build a uid -> emailVerified map.
+        const verifiedMap = new Map<string, boolean>();
+        try {
+            const listUsers = await auth.listUsers();
+            for (const userRecord of listUsers.users) {
+                verifiedMap.set(userRecord.uid, userRecord.emailVerified);
+            }
+        } catch {
+            /* best effort — fall back to stored isVerified */}
+
+        let rows = snap.docs.map(d => {
+            const data = d.data();
+            const firebaseVerified = verifiedMap.get(d.id);
+            const isVerified = firebaseVerified !== undefined ? firebaseVerified : data.isVerified === true;
+            return {
+                uid: d.id,
+                email: typeof data.email === "string" ? data.email : "",
+                displayName: typeof data.displayName === "string" ? data.displayName : "",
+                rollNo: typeof data.rollNo === "string" ? data.rollNo : "",
+                class: typeof data.class === "string" ? data.class : "",
+                section: typeof data.section === "string" ? data.section : "",
+                mobile: typeof data.mobile === "string" ? data.mobile : "",
+                hosteller: data.hosteller === true,
+                isVerified,
+                photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
+                createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : null,
+            };
+        });
 
         if (verified === "true") rows = rows.filter(r => r.isVerified);
         if (verified === "false") rows = rows.filter(r => !r.isVerified);

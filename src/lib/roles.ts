@@ -54,7 +54,11 @@ export function withBuiltIns(stored: ClubRole[]): ClubRole[] {
     // position — the saved rank must be honored.
     const storedCto = stored.find(r => r.id === CTO_ROLE.id);
     const cto = storedCto ? { ...CTO_ROLE, rank: storedCto.rank } : CTO_ROLE;
-    return [...list, cto, EX_CORE_ROLE].sort((a, b) => a.rank - b.rank);
+    // Same for Ex-Core Member: code-fixed identity/permissions, but its
+    // precedence (rank) is CTO-editable and stored, so honor the saved rank.
+    const storedExCore = stored.find(r => r.id === EX_CORE_ROLE.id);
+    const exCore = storedExCore ? { ...EX_CORE_ROLE, rank: storedExCore.rank } : EX_CORE_ROLE;
+    return [...list, cto, exCore].sort((a, b) => a.rank - b.rank);
 }
 
 /**

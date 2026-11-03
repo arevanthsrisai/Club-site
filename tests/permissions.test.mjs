@@ -166,7 +166,6 @@ test('a valid student profile patch parses fully', () => {
             section: 'B',
             mobile: '+91 98765-43210',
             hosteller: false,
-            isVerified: true,
         },
     });
     assert.ok(parsed.success);
@@ -214,8 +213,8 @@ test('mobile numbers accept only digits, spaces, hyphens and a leading plus', ()
 
 test('boolean announce fields must be booleans', () => {
     assert.ok(!studentPatchSchema.safeParse({ uid: 'u', data: { hosteller: 'yes' } }).success);
-    assert.ok(!studentPatchSchema.safeParse({ uid: 'u', data: { isVerified: 1 } }).success);
-    assert.ok(studentPatchSchema.safeParse({ uid: 'u', data: { hosteller: true, isVerified: false } }).success);
+    // isVerified is no longer patchable — it comes from Firebase emailVerified.
+    assert.ok(!studentPatchSchema.safeParse({ uid: 'u', data: { hosteller: true, isVerified: false } }).success);
 });
 
 test('an empty edit produces no fields rather than wiping data', () => {
