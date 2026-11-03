@@ -90,14 +90,44 @@ export default function AdminProfilePage() {
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!user) return;
+
+        // Validate all required fields before setting loading state
+        if (!name.trim()) {
+            setMessage("Display name is required.");
+            return;
+        }
+
+        if (!ROLLNO_REGEX.test(rollNo)) {
+            setMessage("Roll number must be in format AV.XX.U4XXXNNNNN (e.g., AV.SC.U4CSE26001).");
+            return;
+        }
+
+        if (dob) {
+            const dobDate = new Date(dob);
+            const now = new Date();
+            if (dobDate > now) {
+                setMessage("Date of birth cannot be in the future.");
+                return;
+            }
+        }
+
+        // Validate social links if provided (must be valid URLs)
+        if (linkedin && !/^https?:\/\//i.test(linkedin)) {
+            setMessage("LinkedIn must be a valid URL (start with http:// or https://).");
+            return;
+        }
+        if (github && !/^https?:\/\//i.test(github)) {
+            setMessage("GitHub must be a valid URL (start with http:// or https://).");
+            return;
+        }
+        if (instagram && !/^https?:\/\//i.test(instagram)) {
+            setMessage("Instagram must be a valid URL (start with http:// or https://).");
+            return;
+        }
+
         setLoading(true);
         setMessage("");
         setProgress(0);
-
-        if (!ROLLNO_REGEX.test(rollNo)) {
-            setMessage("Roll number must be 3–20 alphanumeric characters.");
-            return;
-        }
 
         try {
             let newPhotoURL = photo;
@@ -315,7 +345,7 @@ export default function AdminProfilePage() {
                                             type="text"
                                             className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-10 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                             value={rollNo}
-                                            onChange={(e) => setRollNo(e.target.value)}
+                                            onChange={(e) => setRollNo(e.target.value.toUpperCase())}
                                             placeholder="AV.SC.U4CSE26001"
                                         />
                                     </div>
