@@ -2,18 +2,20 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"; // useMemo for search filtering
 import Image from "next/image";
-import { Calendar, Clock, MapPin, ExternalLink, X, Check, AlertCircle, Loader2, MessageSquare, CheckCircle, Star, Users, Search } from "lucide-react";
+import { Calendar, Clock, MapPin, ExternalLink, X, Check, AlertCircle, Loader2, MessageSquare, CheckCircle, Star, Users, Search, Trash2 } from "lucide-react";
 import { Event } from "@/types";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { subscribeToEvents, registerForEvent, checkRegistrationStatus, getUserProfile } from "@/lib/api";
+import { subscribeToEvents, registerForEvent, checkRegistrationStatus, getUserProfile, unregisterFromEvent } from "@/lib/api";
 import { isRegistrationWindowOpen } from "@/lib/dateUtils";
 import Markdown from "@/components/ui/Markdown";
+import { useToast } from "@/components/ui/Toast";
 import Link from "next/link";
 
 export default function EventsClient({ events: initialEvents }: { events: Event[] }) {
     const { user } = useAuth();
     const router = useRouter();
+    const toast = useToast();
 
     const [events, setEvents] = useState<Event[]>(initialEvents);
     const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -58,6 +60,8 @@ export default function EventsClient({ events: initialEvents }: { events: Event[
     const [registration, setRegistration] = useState<any | null>(null); // Stores full registration object
     const [registrationError, setRegistrationError] = useState("");
     const [checkingStatus, setCheckingStatus] = useState(false);
+    const [unregistering, setUnregistering] = useState(false);
+    const [confirmUnregister, setConfirmUnregister] = useState(false);
 
     const [showCheckIn, setShowCheckIn] = useState(false);
     const [showFeedback, setShowFeedback] = useState(false);
@@ -133,7 +137,7 @@ export default function EventsClient({ events: initialEvents }: { events: Event[
         // Fetch Profile First
         try {
             const userProfile = await getUserProfile(user.uid);
-            if (!userProfile || !userProfile.rollNo || !userProfile.class) {
+            if (!userProfile || !userProfile.class) {
                 setRegistrationError("Please complete your profile first.");
                 setTimeout(() => router.push("/profile?onboarding=true"), 2000);
                 setRegistering(false);
@@ -185,6 +189,21 @@ export default function EventsClient({ events: initialEvents }: { events: Event[
             }
         } catch (e) {
             console.error(e);
+        }
+    };
+
+    const handleUnregister = async () => {
+        if (!user || !selectedEvent) return;
+        setUnregistering(true);
+        try {
+            await unregisterFromEvent(selectedEvent.id);
+            setConfirmUnregister(false);
+            checkStatus();
+            toast.success("You have unregistered from the event.");
+        } catch (e: any) {
+            setRegistrationError(e.message || "Failed to unregister.");
+        } finally {
+            setUnregistering(false);
         }
     };
 
@@ -296,9 +315,18 @@ export default function EventsClient({ events: initialEvents }: { events: Event[
 
             // Default fallback for Individual or Team-without-name (unlikely)
             return (
-                <button disabled className="px-8 py-3 bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl font-bold flex items-center justify-center gap-2 cursor-default">
-                    <Check size={20} /> Registered
-                </button>
+                <div className="flex flex-col gap-2 items-center w-full sm:w-auto">
+                    <button
+                        onClick={() => setConfirmUnregister(true)}
+                        disabled={unregistering}
+                        className="px-8 py-3 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors"
+                    >
+                        <Trash2 size={20} /> Unregister
+                    </button>
+                    <span className="text-xs text-green-400 font-medium flex items-center gap-1">
+                        <Check size={12} /> Registration Confirmed
+                    </span>
+                </div>
             );
         }
 
@@ -597,6 +625,37 @@ export default function EventsClient({ events: initialEvents }: { events: Event[
                     onRegister={handleTeamRegistration}
                     onStatusChange={() => checkStatus()}
                 />
+            )}
+
+            {/* Unregister confirmation dialog */}
+            {confirmUnregister && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+                    role="dialog" aria-modal="true" aria-labelledby="unregister-dialog-title"
+                    onClick={(e) => { if (e.target === e.currentTarget) setConfirmUnregister(false); }}
+                    onKeyDown={(e) => { if (e.key === "Escape") setConfirmUnregister(false); }}
+                >
+                    <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 p-8">
+                        <h3 id="unregister-dialog-title" className="text-xl font-bold text-white mb-3">Unregister from Event?</h3>
+                        <p className="text-gray-400 text-sm mb-6">
+                            You will be removed from this event. If there is a waitlist, the next person will be promoted.
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => setConfirmUnregister(false)}
+                                className="px-6 py-2 bg-white/10 hover:bg-white/20 text-gray-300 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleUnregister}
+                                disabled={unregistering}
+                                className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {unregistering ? <Loader2 size={18} className="animate-spin" /> : "Yes, Unregister"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

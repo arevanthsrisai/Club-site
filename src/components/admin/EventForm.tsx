@@ -44,7 +44,9 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
             avgRating: initialData?.avgRating || 0,
             feedbackCount: initialData?.feedbackCount || 0,
             minTeamSize: initialData?.minTeamSize || 1,
-            maxTeamSize: initialData?.maxTeamSize || 1
+            maxTeamSize: initialData?.maxTeamSize || 1,
+            maxParticipants: initialData?.maxParticipants ?? undefined,
+            enableWaitlist: initialData?.enableWaitlist ?? false
         }
     );
 
@@ -54,6 +56,9 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
         if (!dateInput) return "Pick the event date.";
         if ((formData.minTeamSize ?? 1) < 1) return "Minimum team size must be at least 1.";
         if ((formData.maxTeamSize ?? 1) < (formData.minTeamSize ?? 1)) return "Maximum team size cannot be smaller than the minimum.";
+        if (formData.maxParticipants !== undefined && (formData.maxParticipants as number) < (formData.maxTeamSize ?? 1)) {
+            return "Maximum participants cannot be smaller than max team size.";
+        }
         return "";
     };
 
@@ -266,6 +271,46 @@ export default function EventForm({ initialData, isEdit = false }: EventFormProp
                         <p id="event-team-size-error" role="alert" className="text-red-400 text-xs mt-1.5">{teamSizeError}</p>
                     ) : (
                         <p className="text-xs text-gray-500 mt-1">Set to 1 for individual events.</p>
+                    )}
+                </div>
+            </div>
+
+            {/* Max Participants & Waitlist */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                    <label htmlFor="event-max-participants" className="block text-sm font-bold text-gray-400 mb-2">Max Participants</label>
+                    <input
+                        id="event-max-participants"
+                        type="number"
+                        min={1}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        value={formData.maxParticipants ?? ""}
+                        onChange={e => {
+                            const v = e.target.value;
+                            setFormData(prev => ({ ...prev, maxParticipants: v === "" ? undefined : Number.parseInt(v) || undefined }));
+                        }}
+                        placeholder="No limit"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Leave empty for unlimited. Registrations beyond this go to waitlist (if enabled).</p>
+                </div>
+                <div className="flex flex-col md:flex-row md:items-end gap-4 bg-black/20 p-4 rounded-xl border border-white/5">
+                    <label className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                            type="checkbox"
+                            checked={formData.enableWaitlist}
+                            onChange={() => setFormData(prev => ({ ...prev, enableWaitlist: !prev.enableWaitlist }))}
+                            className="peer sr-only"
+                        />
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${formData.enableWaitlist ? "border-blue-500 bg-blue-500/20" : "border-gray-500 group-hover:border-gray-400"}`} aria-hidden="true">
+                            {formData.enableWaitlist && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+                        </div>
+                        <span className={`text-sm transition-colors ${formData.enableWaitlist ? "text-white" : "text-gray-400 group-hover:text-gray-300"}`}>Enable Waitlist</span>
+                    </label>
+                    {formData.enableWaitlist && (
+                        <span className="text-[10px] text-blue-400">Waitlist: registrations above Max Participants are waitlisted.</span>
+                    )}
+                    {!formData.enableWaitlist && (
+                        <span className="text-[10px] text-gray-500">Waitlist disabled: registrations beyond Max Participants are blocked.</span>
                     )}
                 </div>
             </div>

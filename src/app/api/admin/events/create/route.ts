@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
             feedbackCount: event.feedbackCount || 0,
             minTeamSize: event.minTeamSize || 1,
             maxTeamSize: event.maxTeamSize || 1,
+            enableWaitlist: event.enableWaitlist || false,
+            ...(event.maxParticipants !== undefined ? { maxParticipants: event.maxParticipants } : {}),
             createdAt: now,
             createdBy: ctx.uid,
             createdByName: ctx.name,

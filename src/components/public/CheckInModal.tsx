@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { X, Loader2 } from "lucide-react";
-import { checkinForEvent } from "@/lib/api";
+import { checkinForEvent, checkRegistrationStatus } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 interface CheckInModalProps {
     eventId: string;
@@ -11,6 +12,7 @@ interface CheckInModalProps {
 }
 
 export default function CheckInModal({ eventId, onClose, onSuccess }: CheckInModalProps) {
+    const { user } = useAuth();
     const [code, setCode] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -54,34 +56,37 @@ export default function CheckInModal({ eventId, onClose, onSuccess }: CheckInMod
             <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-sm p-6 relative">
                 <button onClick={onClose} aria-label="Close check-in" className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
 
-                <h2 className="text-xl font-bold mb-4">Self Check-in</h2>
-                <p className="text-gray-400 text-sm mb-6">Enter the 4-digit code displayed by the organizer.</p>
+                        <h2 className="text-xl font-bold mb-4">Self Check-in</h2>
+                        <p className="text-gray-400 text-sm mb-6">Enter the 4-digit code displayed by the organizer.</p>
 
-                <form onSubmit={handleSubmit}>
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        maxLength={4}
-                        value={code}
-                        aria-label="4-digit check-in code"
-                        aria-invalid={!!error}
-                        onChange={(e) => {
-                            setCode(e.target.value);
-                            setError("");
-                        }}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg p-4 text-center text-3xl tracking-[0.5em] font-mono mb-2 focus:border-blue-500 outline-none uppercase text-white"
-                        placeholder="0000"
-                    />
-                    {error && <p className="text-red-400 text-sm text-center mb-4">{error}</p>}
+                        <form onSubmit={handleSubmit}>
+                            <input
+                                ref={inputRef}
+                                type="text"
+                                maxLength={4}
+                                value={code}
+                                aria-label="4-digit check-in code"
+                                aria-invalid={!!error}
+                                onChange={(e) => {
+                                    setCode(e.target.value);
+                                    setError("");
+                                }}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg p-4 text-center text-3xl tracking-[0.5em] font-mono mb-2 focus:border-blue-500 outline-none uppercase text-white"
+                                placeholder="0000"
+                            />
+                            {error && <p className="text-red-400 text-sm text-center mb-4">{error}</p>}
 
-                    <button
-                        type="submit"
-                        disabled={loading || code.length !== 4}
-                        className="w-full py-3 rounded-lg bg-green-600 hover:bg-green-500 font-bold disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                        {loading ? <Loader2 className="animate-spin" /> : "Verify & Check In"}
-                    </button>
-                </form>
+                            <button
+                                type="submit"
+                                disabled={loading || code.length !== 4}
+                                className="w-full py-3 rounded-lg bg-green-600 hover:bg-green-500 font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {loading ? <Loader2 className="animate-spin" /> : "Verify & Check In"}
+                            </button>
+                        </form>
+                        {code.length === 0 && (
+                            <p className="text-gray-500 text-xs text-center mt-4">The server will reject check-ins for an active session you already completed.</p>
+                        )}
             </div>
         </div>
     );

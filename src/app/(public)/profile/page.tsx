@@ -10,6 +10,16 @@ import {
     User, LogOut, Edit2, AlertCircle, Briefcase, Layers,
     CheckCircle, Camera, BadgeCheck, ShieldAlert, Phone, CalendarDays, RefreshCw
 } from "lucide-react";
+
+/** Extract the roll number from a student's college email.
+ * Email local part format: av.sc.u4cse26001 → Roll number: AV.SC.U4CSE26001
+ */
+function extractRollNo(email: string): string | null {
+    const local = email.split("@")[0];
+    const parts = local.split(".");
+    if (parts.length !== 3) return null;
+    return parts.map(p => p.toUpperCase()).join(".");
+}
 import { UserProfile } from "@/types";
 import AvatarSelector from "@/components/ui/AvatarSelector";
 import { useToast } from "@/components/ui/Toast";
@@ -140,6 +150,8 @@ function ProfileContent() {
                 ...formData,
                 mobile: formData.mobile.replace(/\s/g, ""),
                 email: user.email || "", // Ensure email is saved
+                // Auto-extract roll number from college email (mandatory for event registration)
+                rollNo: user.email ? extractRollNo(user.email) ?? undefined : undefined,
                 // Verification comes from Firebase email verification — no admin review needed
                 isVerified: user.emailVerified || false,
                 // If new profile, set creation time
@@ -302,6 +314,24 @@ function ProfileContent() {
                                     />
                                 </div>
                             </div>
+
+                            {/* Roll Number - Read Only (auto-extracted from email at signup) */}
+                            {profile?.rollNo && (
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Roll Number</label>
+                                    <div className="relative">
+                                        <BadgeCheck className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" size={18} aria-hidden="true" />
+                                        <input
+                                            type="text"
+                                            value={profile.rollNo}
+                                            readOnly
+                                            className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-blue-400 font-mono cursor-not-allowed"
+                                            aria-readonly="true"
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-gray-500 mt-1">Auto-extracted from your college email</p>
+                                </div>
+                            )}
                         </div>
 
                         {/* Academic Info */}

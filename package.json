@@ -11,7 +11,7 @@
         "start": "node scripts/start-prod.mjs",
         "lint": "eslint .",
         "test:rules": "npx -y firebase-tools@14.26.0 emulators:exec --only firestore,storage --project demo-relu \"node --test tests/rules.test.mjs\"",
-        "test:unit": "node --test tests/normalizeEmail.test.mjs tests/firestoreDatabaseId.test.mjs tests/rateLimit.test.mjs tests/dashboardInsights.test.mjs tests/messages.test.mjs tests/excore.test.mjs tests/birthdays.test.mjs tests/permissions.test.mjs"
+        "test:unit": "node --test tests/normalizeEmail.test.mjs tests/firestoreDatabaseId.test.mjs tests/rateLimit.test.mjs tests/dashboardInsights.test.mjs tests/messages.test.mjs tests/excore.test.mjs tests/birthdays.test.mjs tests/permissions.test.mjs tests/formExports.test.mjs tests/eventExport.test.mjs tests/checkinFlow.test.mjs"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1157.0",

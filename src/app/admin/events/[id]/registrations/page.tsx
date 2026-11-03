@@ -1,10 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/lib/auth";
 import { getEvent, getEventRegistrations, Event, EventRegistration } from "@/lib/api";
-import { ArrowLeft, Download, Users, User, Clock, CheckCircle, XCircle, Search } from "lucide-react";
+import { removeEventRegistration } from "@/services/registrations";
+import { exportEventWorkflow, EXPORT_FORMATS, type ExportFormatId } from "@/services/eventWorkflows";
+import {
+    ArrowLeft, Download, Users, User, Clock, CheckCircle, XCircle, Search,
+    Trash2, AlertTriangle, RefreshCw, X, Loader2,
+} from "lucide-react";
 
 export default function EventRegistrationsPage() {
     const params = useParams<{ id: string }>();
@@ -12,6 +19,54 @@ export default function EventRegistrationsPage() {
     const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
+    const [removing, setRemoving] = useState<Set<string>>(new Set());
+    const toast = useToast();
+    const { profile } = useAuth();
+
+    // Export modal state
+    const [exportModal, setExportModal] = useState<{
+        format: ExportFormatId;
+        busy: boolean;
+    } | null>(null);
+
+    // Metrics
+    const metrics = useMemo(() => {
+        const total = registrations.length;
+        const registered = registrations.filter(r => r.status === "registered").length;
+        const waitlisted = registrations.filter(r => r.status === "waitlisted").length;
+        const attended = registrations.filter(r => r.status === "attended").length;
+        return { total, registered, waitlisted, attended };
+    }, [registrations]);
+
+    const confirmExport = useCallback(async () => {
+        if (!exportModal || !event) return;
+        setExportModal(prev => prev ? { ...prev, busy: true } : null);
+        try {
+            await exportEventWorkflow(event.id, "registration", exportModal.format, searchTerm);
+            toast.success(`Registration data exported as ${exportModal.format.toUpperCase()}.`);
+            setExportModal(null);
+        } catch (err: any) {
+            toast.error(err?.message || "Export failed.");
+            setExportModal(prev => prev ? { ...prev, busy: false } : null);
+        }
+    }, [exportModal, event, toast]);
+
+    const handleRemoveRegistration = async (registrationId: string, targetUserId: string) => {
+        setRemoving(prev => new Set([...prev, registrationId]));
+        try {
+            await removeEventRegistration(params.id!, targetUserId);
+            setRegistrations(prev => prev.filter(r => r.id !== registrationId));
+            toast.success("Registration removed and waitlist promoted.");
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Failed to remove registration.");
+        } finally {
+            setRemoving(prev => {
+                const next = new Set(prev);
+                next.delete(registrationId);
+                return next;
+            });
+        }
+    };
 
     useEffect(() => {
         async function fetchData() {
@@ -31,6 +86,10 @@ export default function EventRegistrationsPage() {
     const isTeamEvent = event?.minTeamSize && event.minTeamSize > 1;
 
     const filteredRegistrations = registrations.filter(reg => {
+        // Cancelled registrations are excluded; attended registrations stay
+        // visible in the table — check-in appends to attendance, it never
+        // removes a person from the registration record.
+        if (reg.status === "cancelled") return false;
         const searchLower = searchTerm.toLowerCase();
         if (isTeamEvent) {
             return (
@@ -125,11 +184,45 @@ export default function EventRegistrationsPage() {
 
                 <div className="flex gap-3">
                     <button
-                        onClick={handleExportCSV}
+                        onClick={() => setExportModal({ format: "csv", busy: false })}
                         className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm font-bold"
                     >
-                        <Download size={16} /> Export CSV
+                        <Download size={16} /> Export
                     </button>
+                    <Link
+                        href={`/admin/events/${event.id}/attendance`}
+                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                        title="View attendance"
+                    >
+                        Attendance
+                    </Link>
+                    <Link
+                        href={`/admin/events/${event.id}/feedback`}
+                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                        title="View feedback"
+                    >
+                        Feedback
+                    </Link>
+                </div>
+            </div>
+
+            {/* Metrics Panel */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-2 mb-6" role="group" aria-label="Registration statistics">
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                    <p className="text-2xl font-bold text-white">{metrics.total}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Total</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                    <p className="text-2xl font-bold text-green-400">{metrics.registered}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Registered</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                    <p className="text-2xl font-bold text-yellow-400">{metrics.waitlisted}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Waitlisted</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                    <p className="text-2xl font-bold text-green-400">{metrics.attended}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Checked In</p>
                 </div>
             </div>
 
@@ -157,6 +250,7 @@ export default function EventRegistrationsPage() {
                                         <th className="p-4">Leader</th>
                                         <th className="p-4">Members</th>
                                         <th className="p-4">Contact</th>
+                                        <th className="p-4 text-right">Admin Action</th>
                                         <th className="p-4 text-right">Registered</th>
                                     </>
                                 ) : (
@@ -165,6 +259,7 @@ export default function EventRegistrationsPage() {
                                         <th className="p-4">Roll No</th>
                                         <th className="p-4">Details</th>
                                         <th className="p-4">Contact</th>
+                                        <th className="p-4 text-right">Admin Action</th>
                                         <th className="p-4 text-right">Registered</th>
                                     </>
                                 )}
@@ -181,7 +276,7 @@ export default function EventRegistrationsPage() {
                                                     <Users size={16} className="text-blue-400" />
                                                     {reg.teamName}
                                                 </div>
-                                                <div className="text-xs text-gray-400 bg-white/5 inline-block px-2 py-0.5 rounded">
+                                                <div className={`text-xs px-2 py-0.5 rounded inline-block ${reg.status === 'waitlisted' ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
                                                     {reg.status.toUpperCase()}
                                                 </div>
                                             </td>
@@ -207,6 +302,17 @@ export default function EventRegistrationsPage() {
                                             <td className="p-4 align-top text-gray-300 font-mono">
                                                 {reg.userDetails.mobile}
                                             </td>
+                                            <td className="p-4 text-right align-top">
+                                                <button
+                                                    onClick={() => handleRemoveRegistration(reg.id, reg.userId)}
+                                                    disabled={removing.has(reg.id)}
+                                                    className="text-red-400 hover:text-red-300 hover:underline font-medium text-sm flex items-center gap-1 justify-end transition-colors"
+                                                    aria-label={`Remove registration for ${reg.userDetails.name}`}
+                                                >
+                                                    {removing.has(reg.id) ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                                    Remove
+                                                </button>
+                                            </td>
                                         </>
                                     ) : (
                                         // Individual Row
@@ -224,9 +330,20 @@ export default function EventRegistrationsPage() {
                                             <td className="p-4 font-mono text-gray-400">
                                                 {reg.userDetails.mobile}
                                             </td>
+                                            <td className="p-4 text-right align-top">
+                                                <button
+                                                    onClick={() => handleRemoveRegistration(reg.id, reg.userId)}
+                                                    disabled={removing.has(reg.id)}
+                                                    className="text-red-400 hover:text-red-300 hover:underline font-medium text-sm flex items-center gap-1 justify-end transition-colors"
+                                                    aria-label={`Remove registration for ${reg.userDetails.name}`}
+                                                >
+                                                    {removing.has(reg.id) ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                                    Remove
+                                                </button>
+                                            </td>
                                         </>
                                     )}
-                                    <td className="p-4 text-right text-gray-500 font-mono text-xs">
+                                    <td className="p-4 text-right text-gray-500 font-mono text-xs align-top">
                                         {reg.registeredAt?.seconds ? new Date(reg.registeredAt.seconds * 1000).toLocaleString() : 'N/A'}
                                     </td>
                                 </tr>
@@ -234,7 +351,7 @@ export default function EventRegistrationsPage() {
 
                             {filteredRegistrations.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="p-8 text-center text-gray-500">
+                                    <td colSpan={6} className="p-8 text-center text-gray-500">
                                         No registrations found matching your search.
                                     </td>
                                 </tr>
@@ -243,6 +360,64 @@ export default function EventRegistrationsPage() {
                     </table>
                 </div>
             </div>
+
+            {/* Export dialog */}
+            {exportModal && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="export-title"
+                >
+                    <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gray-900 p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 id="export-title" className="text-lg font-bold text-white">Export registrations</h2>
+                            <button type="button" onClick={() => setExportModal(null)} className="text-gray-400 hover:text-white" aria-label="Close">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-400 mb-4">
+                            Exporting <strong className="text-white">{event!.title}</strong> — registrations
+                        </p>
+                        <div className="mb-5">
+                            <label className="block text-sm font-semibold text-gray-300 mb-2">Select format</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {EXPORT_FORMATS.map(f => (
+                                    <button
+                                        key={f.id}
+                                        type="button"
+                                        onClick={() => setExportModal(prev => prev ? { ...prev, format: f.id } : null)}
+                                        className={`px-3 py-2 rounded-lg text-sm border transition-colors ${exportModal?.format === f.id
+                                                ? "bg-blue-600 border-blue-500 text-white"
+                                                : "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"
+                                            }`}
+                                    >
+                                        {f.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setExportModal(null)}
+                                disabled={exportModal.busy}
+                                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmExport}
+                                disabled={exportModal.busy}
+                                className="rounded-full bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500 transition-colors inline-flex items-center gap-2 disabled:opacity-40"
+                            >
+                                {exportModal.busy ? <Loader2 size={14} className="animate-spin" /> : "Download"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

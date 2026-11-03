@@ -120,6 +120,12 @@ export async function POST(request: NextRequest) {
                     if (currentAttStatus !== "active") {
                         throw new Error("Attendance is not active. Nothing to stop.");
                     }
+                    const sessionId = eventDoc.data()?.attendanceSessionId;
+                    if (sessionId) {
+                        tx.update(db.collection("attendance_sessions").doc(sessionId), {
+                            endedAt: now.toMillis(),
+                        });
+                    }
                     tx.update(eventRef, {
                         attendanceStatus: "ended",
                         attendanceStoppedAt: now,
@@ -170,9 +176,18 @@ export async function POST(request: NextRequest) {
                     }
                     // Generate a new attendance code for the new session
                     const code = Math.floor(1000 + Math.random() * 9000).toString();
-                    tx.set(db.collection("event_secrets").doc(eventId), { code, failures: {} }, { merge: true });
+                    const sessionId = `${eventId}_${now.toMillis()}`;
+                    tx.set(db.collection("attendance_sessions").doc(sessionId), {
+                        id: sessionId,
+                        eventId,
+                        code,
+                        startedAt: now.toMillis(),
+                        endedAt: null,
+                    });
+                    tx.set(db.collection("event_secrets").doc(eventId), { code, sessionId, failures: {} }, { merge: true });
                     tx.update(eventRef, {
                         attendanceStatus: "active",
+                        attendanceSessionId: sessionId,
                         attendanceRestartedAt: now,
                     });
                 } else if (workflow === "feedback") {

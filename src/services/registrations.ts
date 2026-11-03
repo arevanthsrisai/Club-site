@@ -74,6 +74,16 @@ export async function deleteTeam(eventId: string) {
     await callRegistrationsApi("deleteTeam", { eventId });
 }
 
+// Student: unregister themselves from an event.
+export async function unregisterFromEvent(eventId: string) {
+    await callRegistrationsApi("unregister", { eventId });
+}
+
+// Admin: remove any user's registration for an event.
+export async function removeEventRegistration(eventId: string, targetUserId: string) {
+    await callRegistrationsApi("removeRegistration", { eventId, targetUserId });
+}
+
 export async function removeTeamMember(eventId: string, leaderId: string, memberId: string) {
     await callRegistrationsApi("removeMember", { eventId, leaderId, memberId });
 }

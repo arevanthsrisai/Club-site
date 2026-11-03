@@ -94,7 +94,28 @@ service cloud.firestore {
 
     // Attendance codes, kept out of the public event docs. Check-in is verified by /api/registrations.
     match /event_secrets/{eventId} {
-      allow read, write: if isAdmin();
+      allow read: if request.auth != null
+        && (isAdmin() || get(/databases/$(database)/documents/events/$(eventId)).data.attendanceStatus == 'active');
+      allow write: if isAdmin();
+    }
+
+    // Standalone attendance records and session metadata. The client reads the
+    // event page and the admin attendance page; all writes happen through the
+    // server-side /api/registrations check-in action.
+    match /attendance_records/{recordId} {
+      allow read: if request.auth != null
+        && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /attendance_sessions/{sessionId} {
+      // A signed-in user may read the active session for an event if that
+      // sessionId matches the one stored in event_secrets for that event.
+      // Admins may read any session. Writes are server-side only.
+      allow read: if request.auth != null
+        && (isAdmin()
+            || get(/databases/$(database)/documents/event_secrets/$(resource.data.eventId)).data.sessionId == sessionId);
+      allow write: if false;
     }
 
     match /gallery/{document} {

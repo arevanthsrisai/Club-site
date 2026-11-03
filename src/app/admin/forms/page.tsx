@@ -20,12 +20,13 @@ import PageHeader from "@/components/ui/PageHeader";
 import { useToast } from "@/components/ui/Toast";
 import {
     subscribeToEvents, updateEvent, logActivity,
+    getAttendanceCode,
 } from "@/lib/api";
 import type { Event as EventType } from "@/types";
 import {
     ClipboardList, Plus, Search, Users, CheckCircle, MessageSquare, Loader2, AlertCircle,
     RotateCcw, Calendar, FileSpreadsheet, Play, StopCircle, ExternalLink, MoreVertical,
-    Download, Trash2, RefreshCw, X,
+    Download, Trash2, RefreshCw, X, Clock,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { executeWorkflowAction, exportEventWorkflow, EXPORT_FORMATS, type WorkflowType, type ExportFormatId } from "@/services/eventWorkflows";
@@ -52,6 +53,7 @@ export default function EventsAdminPage() {
     const [deleting, setDeleting] = useState<EventType | null>(null);
     const [deleteBusy, setDeleteBusy] = useState(false);
     const [regCounts, setRegCounts] = useState<Record<string, number>>({});
+    const [attendanceCodes, setAttendanceCodes] = useState<Record<string, string>>({});
 
     // Workflow action modal state
     const [workflowModal, setWorkflowModal] = useState<{
@@ -91,6 +93,28 @@ export default function EventsAdminPage() {
                 .then(next => { if (!cancelled) setRegCounts(next); })
                 .catch(err => console.warn("Registration counts unavailable:", err))
         );
+        return () => { cancelled = true; };
+    }, [events]);
+
+    // Fetch attendance codes for events with active attendance
+    useEffect(() => {
+        if (events.length === 0) return;
+        let cancelled = false;
+        Promise.all(
+            events
+                .filter(e => e.attendanceStatus === "active")
+                .map(e =>
+                    getAttendanceCode(e.id).then(({ code }) => ({ id: e.id, code: code || "" }))
+                )
+        ).then(codes => {
+            if (!cancelled) {
+                setAttendanceCodes(prev => {
+                    const next = { ...prev };
+                    codes.forEach(c => { if (c.code) next[c.id] = c.code; });
+                    return next;
+                });
+            }
+        });
         return () => { cancelled = true; };
     }, [events]);
 
@@ -156,11 +180,17 @@ export default function EventsAdminPage() {
                     const { startAttendance, stopAttendance } = await import("@/lib/api");
                     if (event.attendanceStatus === "active") {
                         await stopAttendance(event.id);
+                        setAttendanceCodes(prev => {
+                            const next = { ...prev };
+                            delete next[event.id];
+                            return next;
+                        });
                         await logActivity(profile?.uid!, profile?.displayName || "Admin", `Stopped attendance: ${event.title}`);
                         toast.success("Attendance stopped.");
                     } else {
                         const code = Math.floor(1000 + Math.random() * 9000).toString();
                         await startAttendance(event.id, code);
+                        setAttendanceCodes(prev => ({ ...prev, [event.id]: code }));
                         await logActivity(profile?.uid!, profile?.displayName || "Admin", `Started attendance: ${event.title}`);
                         toast.success(`Attendance started. Code: ${code}`);
                     }
@@ -191,6 +221,13 @@ export default function EventsAdminPage() {
         try {
             const result = await executeWorkflowAction(event.id, workflow, action);
             toast.success(result.message);
+            if (workflow === "attendance" && action === "stop") {
+                setAttendanceCodes(prev => {
+                    const next = { ...prev };
+                    delete next[event.id];
+                    return next;
+                });
+            }
             setWorkflowModal(null);
         } catch (err: any) {
             toast.error(err?.message || "Action failed.");
@@ -342,6 +379,12 @@ export default function EventsAdminPage() {
                                             workflow="attendance"
                                             event={event}
                                         />
+                                        {event.attendanceStatus === "active" && attendanceCodes[event.id] && (
+                                            <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400" title="Attendance code">
+                                                <Clock size={10} className="text-blue-400" />
+                                                Code: {attendanceCodes[event.id]}
+                                            </span>
+                                        )}
                                         <WorkflowBadge
                                             icon={<MessageSquare size={12} />}
                                             label="Feedback"

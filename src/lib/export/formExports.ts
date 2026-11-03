@@ -197,9 +197,10 @@ export function toPdf(payload: ExportPayload): Buffer {
     const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
 
+    const workflowLabel = payload.form.status === "attendance" ? "ATTENDANCE" : payload.form.status === "feedback" ? "FEEDBACK" : "REGISTRATIONS";
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
-    doc.text(sanitizeForPdf(`Registrations — ${payload.form.title}`).slice(0, 120), 40, 36);
+    doc.text(sanitizeForPdf(`${workflowLabel} — ${payload.form.title}`).slice(0, 120), 40, 36);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(90);
@@ -246,6 +247,7 @@ export function toPdf(payload: ExportPayload): Buffer {
 export async function toDocx(payload: ExportPayload): Promise<Buffer> {
     const { columns, rows } = tableModel(payload);
 
+    const workflowLabel = payload.form.status === "attendance" ? "Attendance" : payload.form.status === "feedback" ? "Feedback" : "Registrations";
     const headerRow = new TableRow({
         tableHeader: true, // Word repeats this row at the top of every page.
         children: columns.map(c => new TableCell({
@@ -271,7 +273,7 @@ export async function toDocx(payload: ExportPayload): Promise<Buffer> {
         sections: [{
             properties: { page: { size: { orientation: PageOrientation.LANDSCAPE } } },
             children: [
-                new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(payload.form.title)] }),
+                new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(`${workflowLabel} — ${payload.form.title}`)] }),
                 new Paragraph({
                     spacing: { after: 240 },
                     children: [new TextRun({
@@ -323,9 +325,10 @@ export function toTxt(payload: ExportPayload): string {
     const { columns, rows } = tableModel(payload);
     const width = 78;
     const line = "=".repeat(width);
+    const workflowLabel = payload.form.status === "attendance" ? "ATTENDANCE" : payload.form.status === "feedback" ? "FEEDBACK" : "REGISTRATIONS";
     const out: string[] = [];
     out.push(line);
-    out.push(`REGISTRATIONS — ${payload.form.title}`);
+    out.push(`${workflowLabel} — ${payload.form.title}`);
     out.push(`${payload.submissions.length} submission${payload.submissions.length === 1 ? "" : "s"} • exported ${formatStamp(new Date().toISOString())} (UTC)`);
     if (payload.form.description) out.push(`Description: ${payload.form.description}`);
     out.push(line);
@@ -355,6 +358,7 @@ export function toTxt(payload: ExportPayload): string {
 export function toHtml(payload: ExportPayload): string {
     const { columns, rows } = tableModel(payload);
     const esc = escapeHtml;
+    const workflowLabel = payload.form.status === "attendance" ? "Attendance" : payload.form.status === "feedback" ? "Feedback" : "Registrations";
     const head = columns.map(c => `<th>${esc(c.header)}</th>`).join("");
     const body = rows.map(r =>
         `<tr>${r.map(cell => {
@@ -370,7 +374,7 @@ export function toHtml(payload: ExportPayload): string {
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Registrations — ${esc(payload.form.title)}</title>
+<title>${workflowLabel} — ${esc(payload.form.title)}</title>
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 32px; color: #111827; }
   h1 { font-size: 1.5rem; margin-bottom: 4px; }
@@ -383,7 +387,7 @@ export function toHtml(payload: ExportPayload): string {
 </style>
 </head>
 <body>
-<h1>Registrations — ${esc(payload.form.title)}</h1>
+<h1>${workflowLabel} — ${esc(payload.form.title)}</h1>
 ${summary}
 ${payload.form.description ? `<p class="desc">${esc(payload.form.description)}</p>` : ""}
 ${payload.submissions.length ? `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : "<p>No submissions yet.</p>"}

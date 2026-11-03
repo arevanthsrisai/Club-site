@@ -55,13 +55,13 @@ export async function POST(request: NextRequest) {
         } | undefined;
 
         // Load submissions in cursor batches (efficient for large sets — no full-scan fetch all).
+        // Fetch without orderBy to avoid requiring composite indexes, then sort in memory.
         const fieldIds = new Set((fd?.fields ?? []).map(f => f.id));
         const submissions: ExportSubmission[] = [];
         let cursor: string | null = null;
         for (;;) {
             let q = db.collection("form_submissions")
                 .where("formId", "==", id)
-                .orderBy("submittedAt", "desc")
                 .limit(400) as unknown as Query<{ [key: string]: unknown }>;
             if (cursor) q = q.startAfter(cursor) as unknown as Query<{ [key: string]: unknown }>;
             const snap = await q.get();
@@ -84,6 +84,12 @@ export async function POST(request: NextRequest) {
             });
             cursor = snap.docs[snap.docs.length - 1].id;
         }
+        // Sort submissions in memory by submittedAt descending
+        submissions.sort((a, b) => {
+            const aTime = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+            const bTime = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
+            return bTime - aTime;
+        });
 
         // Search mirrors the registrations page filter: name, email or any answer text.
         const filtered = search

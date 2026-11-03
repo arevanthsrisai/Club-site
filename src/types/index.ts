@@ -13,11 +13,14 @@ export interface Event {
     registrationStatus: "upcoming" | "open" | "closed"; // Logic status
     isFeedbackOpen: boolean;
     attendanceStatus?: 'upcoming' | 'active' | 'ended'; // Lifecycle
+    attendanceSessionId?: string; // Active attendance session id
     feedbackStatus?: 'upcoming' | 'active' | 'ended'; // Lifecycle
     avgRating?: number;
     feedbackCount?: number;
     minTeamSize?: number; // Default 1
     maxTeamSize?: number; // Default 1
+    maxParticipants?: number; // Max total participants across all teams/individuals (waitlist when reached)
+    enableWaitlist?: boolean; // Allow waitlisted registrations above maxParticipants
 }
 
 export type ResourceCategory = "AIML" | "DSA" | "General";
@@ -115,7 +118,7 @@ export interface EventRegistration {
         mobile: string;
     };
     registeredAt: any;
-    status: 'forming' | 'registered' | 'cancelled' | 'attended';
+    status: 'forming' | 'registered' | 'cancelled' | 'attended' | 'waitlisted';
     feedbackSubmitted?: boolean;
     teamName?: string;
     teamMembers?: {

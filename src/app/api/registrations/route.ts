@@ -59,6 +59,24 @@ async function findRegistration(eventId: string, uid: string): Promise<{ ref: Do
     return member.empty ? null : { ref: member.docs[0].ref, data: member.docs[0].data() };
 }
 
+// Count total individual participants across all registrations for an event.
+async function countParticipants(eventId: string): Promise<number> {
+    const snap = await db().collection('registrations').where('eventId', '==', eventId).get();
+    let total = 0;
+    for (const d of snap.docs) {        total += (d.data()?.participantIds as string[] | undefined)?.length || 1;    }
+    return total;
+}
+
+// Get all waitlisted registrations for an event, oldest first.
+async function getWaitlisted(eventId: string): Promise<{ id: string; data: DocumentData }[]> {
+    const snap = await db().collection('registrations')
+        .where('eventId', '==', eventId)
+        .where('status', '==', 'waitlisted')
+        .orderBy('registeredAt', 'asc')
+        .get();
+    return snap.docs.map(d => ({ id: d.id, data: d.data() }));
+}
+
 // --- Actions ---
 
 async function register(uid: string, body: Body) {
@@ -83,7 +101,41 @@ async function register(uid: string, body: Body) {
         }
     }
 
+    // Max participants / waitlist enforcement
+    if (event.maxParticipants) {
+        const participantCount = await countParticipants(eventId);
+        const remaining = event.maxParticipants - participantCount;
+        const spotsNeeded = isTeamEvent ? (event.maxTeamSize || 1) : 1;
+        if (remaining <= 0) {
+            if (event.enableWaitlist) {
+                const regId = `${eventId}_${uid}`;
+                await db().collection('registrations').doc(regId).create({
+                    id: regId,
+                    eventId,
+                    userId: uid,
+                    userDetails: {
+                        name: profile.displayName || 'Unknown',
+                        rollNo: profile.rollNo,
+                        class: profile.class || 'Unknown',
+                        section: profile.section || 'Unknown',
+                        mobile: profile.mobile,
+                    },
+                    registeredAt: Timestamp.now(),
+                    status: 'waitlisted' as const,
+                    participantIds: [uid],
+                    ...(isTeamEvent && { teamName, teamMembers: [] }),
+                });
+                return { registrationId: regId, waitlisted: true };
+            }
+            throw new ApiError('Event is full. Registrations are closed.');
+        }
+        if (remaining < spotsNeeded && !event.enableWaitlist) {
+            throw new ApiError(`Only ${remaining} spot(s) left for ${spotsNeeded} participant(s).`);
+        }
+    }
+
     const regId = `${eventId}_${uid}`;
+    const status = isTeamEvent && (event.minTeamSize || 1) > 1 ? 'forming' : 'registered';
     const registration = {
         id: regId,
         eventId,
@@ -96,7 +148,7 @@ async function register(uid: string, body: Body) {
             mobile: profile.mobile,
         },
         registeredAt: Timestamp.now(),
-        status: isTeamEvent && (event.minTeamSize || 1) > 1 ? 'forming' : 'registered',
+        status,
         participantIds: [uid],
         ...(isTeamEvent && { teamName, teamMembers: [] }),
     };
@@ -321,6 +373,69 @@ async function deleteTeam(uid: string, body: Body) {
     await batch.commit();
 }
 
+// Admin: remove any registration for an event, freeing a slot and promoting waitlisted.
+async function removeRegistration(actorUid: string, body: Body) {
+    const eventId = text(body, 'eventId');
+    const targetUid = text(body, 'targetUserId');
+
+    const reg = await findRegistration(eventId, targetUid);
+    if (!reg) throw new ApiError('No registration found for this user.', 404);
+
+    const event = await getEvent(eventId);
+
+    // Delete associated invitations (target = removed user)
+    const invites = await db().collection('invitations').where('eventId', '==', eventId).where('targetUserId', '==', targetUid).get();
+    const batch = db().batch();
+    invites.docs.forEach(d => batch.delete(d.ref));
+    batch.delete(reg.ref);
+    await batch.commit();
+
+    // Promote first waitlisted participant if slots are available
+    if (event.enableWaitlist && event.maxParticipants) {
+        const remaining = event.maxParticipants - await countParticipants(eventId);
+        if (remaining > 0) {
+            const waitlisted = await getWaitlisted(eventId);
+            if (waitlisted.length > 0) {
+                const first = waitlisted[0];
+                await db().collection('registrations').doc(first.id).update({ status: 'registered' });
+            }
+        }
+    }
+
+    return { removed: targetUid };
+}
+
+// Student: unregister themselves from an event.
+async function unregister(uid: string, body: Body) {
+    const eventId = text(body, 'eventId');
+
+    const reg = await findRegistration(eventId, uid);
+    if (!reg) throw new ApiError('You are not registered for this event.', 404);
+
+    const event = await getEvent(eventId);
+
+    // Delete associated invitations where this user is the target
+    const invites = await db().collection('invitations').where('eventId', '==', eventId).where('targetUserId', '==', uid).get();
+    const batch = db().batch();
+    invites.docs.forEach(d => batch.delete(d.ref));
+    batch.delete(reg.ref);
+    await batch.commit();
+
+    // Promote first waitlisted if slots opened
+    if (event.enableWaitlist && event.maxParticipants) {
+        const remaining = event.maxParticipants - await countParticipants(eventId);
+        if (remaining > 0) {
+            const waitlisted = await getWaitlisted(eventId);
+            if (waitlisted.length > 0) {
+                const first = waitlisted[0];
+                await db().collection('registrations').doc(first.id).update({ status: 'registered' });
+            }
+        }
+    }
+
+    return { unregistered: true };
+}
+
 async function checkin(uid: string, body: Body) {
     const eventId = text(body, 'eventId');
     const code = text(body, 'code');
@@ -349,6 +464,21 @@ async function checkin(uid: string, body: Body) {
     await reg.ref.update(reg.data.teamName
         ? { [`attendance.${uid}`]: true, [`attendanceSession.${uid}`]: sessionId }
         : { status: attended ? reg.data.status : 'attended', [`attendance.${uid}`]: true, [`attendanceSession.${uid}`]: sessionId });
+
+    // Persist a standalone attendance record for session-scoped exports and reset.
+    const profile = await getProfile(uid);
+    const recordRef = db().collection('attendance_records').doc();
+    await recordRef.set({
+        id: recordRef.id,
+        eventId,
+        userId: uid,
+        userName: profile.displayName || reg.data.userDetails.name || 'Unknown',
+        rollNo: profile.rollNo || reg.data.userDetails.rollNo || '',
+        sessionId,
+        code,
+        teamName: reg.data.teamName ?? null,
+        checkedInAt: Timestamp.now(),
+    });
 }
 
 async function feedback(uid: string, body: Body) {
@@ -397,6 +527,7 @@ async function feedback(uid: string, body: Body) {
 
 const ACTIONS: Record<string, (uid: string, body: Body) => Promise<unknown>> = {
     register, searchStudents, invite, respond, availableTeams, requestJoin, removeMember, deleteTeam, checkin, feedback,
+    removeRegistration, unregister,
 };
 
 export async function POST(request: Request) {

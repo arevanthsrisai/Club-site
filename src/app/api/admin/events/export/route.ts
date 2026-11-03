@@ -74,15 +74,33 @@ export async function POST(request: NextRequest) {
         const allRecords: Array<Record<string, unknown>> = [];
 
         if (workflow === "registration") {
-            const snap = await db.collection("registrations").where("eventId", "==", eventId).orderBy("registeredAt", "desc").get();
+            const snap = await db.collection("registrations").where("eventId", "==", eventId).get();
             snap.forEach(d => allRecords.push({ id: d.id, ...d.data() }));
+            // Sort in memory to avoid requiring composite indexes
+            allRecords.sort((a, b) => {
+                const aTime = a.registeredAt as number | undefined;
+                const bTime = b.registeredAt as number | undefined;
+                return (bTime ?? 0) - (aTime ?? 0);
+            });
         } else if (workflow === "attendance") {
             // Attendance records
-            const snap = await db.collection("attendance_records").where("eventId", "==", eventId).orderBy("checkedInAt", "desc").get();
+            const snap = await db.collection("attendance_records").where("eventId", "==", eventId).get();
             snap.forEach(d => allRecords.push({ id: d.id, ...d.data() }));
+            // Sort in memory to avoid requiring composite indexes
+            allRecords.sort((a, b) => {
+                const aTime = a.checkedInAt as number | undefined;
+                const bTime = b.checkedInAt as number | undefined;
+                return (bTime ?? 0) - (aTime ?? 0);
+            });
         } else if (workflow === "feedback") {
-            const snap = await db.collection("feedbacks").where("eventId", "==", eventId).orderBy("submittedAt", "desc").get();
+            const snap = await db.collection("feedbacks").where("eventId", "==", eventId).get();
             snap.forEach(d => allRecords.push({ id: d.id, ...d.data() }));
+            // Sort in memory to avoid requiring composite indexes
+            allRecords.sort((a, b) => {
+                const aTime = a.submittedAt as number | undefined;
+                const bTime = b.submittedAt as number | undefined;
+                return (bTime ?? 0) - (aTime ?? 0);
+            });
         }
 
         // Search filter

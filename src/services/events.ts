@@ -2,15 +2,24 @@ import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, addDoc, deleteDoc, updateDoc, query, onSnapshot, setDoc, writeBatch, deleteField } from "firebase/firestore";
 import { Event } from "@/types";
 import { deleteFileByUrl } from "./storage";
-import { getEventGallery, deleteFromGallery } from "./gallery";
+import { getEventGallery, deleteFromGallery } from "./gallery";// --- Events API ---
 
-// --- Events API ---
+/**
+ * Converts Firestore values (Timestamps with toJSON, nested objects)
+ * to plain JSON-safe values so they can cross into Client Components.
+ */
+function fromFirestore(data: Record<string, unknown>): Record<string, unknown> {
+    // JSON.stringify calls toJSON() on objects that have it (Firestore
+    // Timestamps serialize to ISO strings); JSON.parse brings it back as
+    // plain objects/primitives — no toJSON methods left behind.
+    return JSON.parse(JSON.stringify(data));
+}
 
 export async function getEvents(): Promise<Event[]> {
     try {
         const q = query(collection(db, "events")); // You might want to order by date here
         const querySnapshot = await getDocs(q);
-        return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Event));
+        return querySnapshot.docs.map((doc) => ({ id: doc.id, ...fromFirestore(doc.data() as Record<string, unknown>) } as Event));
     } catch (error) {
         console.warn("Firebase fetch failed (Events):", error);
         return [];
@@ -20,7 +29,7 @@ export async function getEvents(): Promise<Event[]> {
 export function subscribeToEvents(callback: (events: Event[]) => void, onError?: (error: unknown) => void) {
     const q = query(collection(db, "events"));
     return onSnapshot(q, (snapshot) => {
-        const events = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Event));
+        const events = snapshot.docs.map((doc) => ({ id: doc.id, ...fromFirestore(doc.data() as Record<string, unknown>) } as Event));
         callback(events);
     }, onError);
 }
@@ -203,6 +212,50 @@ export async function getEventFeedbacks(eventId: string): Promise<Feedback[]> {
         return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Feedback));
     } catch (error) {
         console.warn("Error fetching feedbacks:", error);
+        return [];
+    }
+}
+
+// Attendance records: standalone check-in records written by the student check-in API.
+export interface AttendanceRecord {
+    id: string;
+    eventId: string;
+    userId: string;
+    userName: string;
+    rollNo: string;
+    sessionId: string;
+    code: string;
+    teamName: string | null;
+    checkedInAt: any; // Firestore Timestamp
+}
+
+export async function getEventAttendanceRecords(eventId: string): Promise<AttendanceRecord[]> {
+    try {
+        const q = query(collection(db, "attendance_records"), where("eventId", "==", eventId));
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as AttendanceRecord));
+    } catch (error) {
+        console.warn("Error fetching attendance records:", error);
+        return [];
+    }
+}
+
+// Attendance sessions: tracked in attendance_sessions/{sessionId}
+export interface AttendanceSession {
+    id: string;
+    eventId: string;
+    code: string;
+    startedAt: any;
+    endedAt: any | null;
+}
+
+export async function getEventAttendanceSessions(eventId: string): Promise<AttendanceSession[]> {
+    try {
+        const q = query(collection(db, "attendance_sessions"), where("eventId", "==", eventId));
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as AttendanceSession));
+    } catch (error) {
+        console.warn("Error fetching attendance sessions:", error);
         return [];
     }
 }
