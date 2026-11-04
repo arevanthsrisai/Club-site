@@ -4,15 +4,11 @@ import { validateKey as validateKeyImpl } from "@/lib/storageValidation";
 export { validateKeyImpl as validateKey };
 
 /**
- * S3-compatible object storage for the event gallery.
- *
- * The primary provider is Backblaze B2 (its S3-compatible API). Cloudflare R2
- * is kept as a legacy provider so existing R2 objects can still be deleted and
- * served while they are being migrated; configure B2 and R2 falls away.
+ * S3-compatible object storage for the event gallery, backed by Backblaze B2
+ * (its S3-compatible API).
  *
  * Required environment variables (documented in .env.example):
  *
- * B2 (primary):
  *   B2_S3_ENDPOINT        S3 endpoint from the bucket's details, e.g.
  *                         https://s3.us-west-004.backblazeb2.com (no guess — read it)
  *   B2_REGION             region/subdomain part, e.g. us-west-004
@@ -20,17 +16,13 @@ export { validateKeyImpl as validateKey };
  *   B2_APPLICATION_KEY_ID application key ID (least-privilege key)
  *   B2_APPLICATION_KEY    the application key secret (never exposed client-side)
  *
- * Legacy R2 (during migration only):
- *   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME,
- *   R2_PUBLIC_BASE_URL
- *
  * B2 buckets are private: gallery media is delivered through the same-origin
  * server route /api/gallery/media (see route), which reads the object with the
  * server-side client and attaches proper cache/content-type headers. Object
  * keys are uuid-unique so "immutable" browser caching is always safe.
  */
 
-export type StorageProvider = "b2" | "r2";
+export type StorageProvider = "b2";
 
 export interface StorageConfig {
     provider: StorageProvider;
@@ -39,39 +31,12 @@ export interface StorageConfig {
     accessKeyId: string;
     secretAccessKey: string;
     bucketName: string;
-    /** Legacy R2-only public delivery base; null for B2 (private-bucket delivery goes through /api/gallery/media). */
-    publicBaseUrl: string | null;
 }
 
 const B2_ENV_KEYS = ["B2_S3_ENDPOINT", "B2_REGION", "B2_BUCKET_NAME", "B2_APPLICATION_KEY_ID", "B2_APPLICATION_KEY"] as const;
-const LEGACY_R2_ENV_KEYS = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL"] as const;
 
 /** Exported only for tests: the module has no other reason to expose its key names. */
-export const STORAGE_ENV_KEYS = { b2: B2_ENV_KEYS, legacyR2: LEGACY_R2_ENV_KEYS };
-
-function getLegacyR2Config(): StorageConfig | null {
-    const accountId = process.env.R2_ACCOUNT_ID;
-    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-    const bucketName = process.env.R2_BUCKET_NAME;
-    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL?.replace(/\/+$/, "");
-    if (!accountId || !accessKeyId || !secretAccessKey || !bucketName || !publicBaseUrl) return null;
-    try {
-        const url = new URL(publicBaseUrl);
-        if (url.protocol !== "https:") return null;
-    } catch {
-        return null;
-    }
-    return {
-        provider: "r2",
-        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-        region: "auto",
-        accessKeyId,
-        secretAccessKey,
-        bucketName,
-        publicBaseUrl,
-    };
-}
+export const STORAGE_ENV_KEYS = { b2: B2_ENV_KEYS };
 
 function getB2Config(): StorageConfig | null {
     const endpoint = process.env.B2_S3_ENDPOINT?.replace(/\/+$/, "");
@@ -86,17 +51,16 @@ function getB2Config(): StorageConfig | null {
     } catch {
         return null;
     }
-    return { provider: "b2", endpoint, region, accessKeyId, secretAccessKey, bucketName, publicBaseUrl: null };
+    return { provider: "b2", endpoint, region, accessKeyId, secretAccessKey, bucketName };
 }
 
-/** B2 wins when both are configured (the R2 vars are only a carve-out for legacy objects). */
 export function getStorageConfig(): StorageConfig | null {
-    return getB2Config() ?? getLegacyR2Config();
+    return getB2Config();
 }
 
 function getClient(config: StorageConfig): S3Client {
     return new S3Client({
-        region: config.provider === "b2" ? config.region : "auto",
+        region: config.region,
         endpoint: config.endpoint,
         credentials: {
             accessKeyId: config.accessKeyId,
@@ -157,7 +121,6 @@ export async function uploadObject(config: StorageConfig, key: string, body: Buf
         ContentType: contentType,
         CacheControl: "public, max-age=31536000, immutable",
     }));
-    if (config.publicBaseUrl) return `${config.publicBaseUrl}/${key}`;
     // Private-bucket delivery (B2): served through the same-origin media route,
     // which validates the key and streams the object with correct headers.
     return `/api/gallery/media?key=${encodeURIComponent(key)}`;
@@ -198,21 +161,13 @@ export async function deleteObjectPermanent(config: StorageConfig, key: string, 
             throw e;
         }
     }
-    // Legacy-provider-only plain delete. On Backblaze B2 the S3-compatible
-    // DeleteObject NEVER erases data: it creates a permanent "hide marker"
-    // that is invisible to every object listing yet shows up in the B2 web
-    // console as an immortal "0 bytes" ghost row — even for keys that never
-    // existed or whose versions were just removed above. Every real byte was
-    // already deleted by the version loop, so on B2 we stop here and the
-    // console stays clean. Legacy unversioned providers (R2) still need the
-    // plain delete because they have no version traversal.
-    if (config.provider !== "b2") {
-        try {
-            await client.send(new DeleteObjectCommand({ Bucket: config.bucketName, Key: key }));
-        } catch (e) {
-            console.warn("plain delete failed", e);
-        }
-    }
+    // Deliberately NO final version-id-less DeleteObject here. On Backblaze B2
+    // that call NEVER erases data: it creates a permanent "hide marker" that
+    // is invisible to every object listing yet shows up in the B2 web console
+    // as an immortal "0 bytes" ghost row — even for keys that never existed
+    // or whose versions were just removed above. Every real byte was already
+    // deleted by the version loop, so stopping here keeps the console clean
+    // (regression-tested by tests/storage-tombstone-delete.test.mjs).
 }
 
 export async function deleteObject(config: StorageConfig, key: string): Promise<void> {

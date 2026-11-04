@@ -9,8 +9,7 @@ import { compressVideo, checkFfmpeg } from "@/lib/videoCompress";
 import { generateVideoThumbnail } from "@/lib/videoThumbnail";
 
 /**
- * Server-side gallery upload to Backblaze B2 (legacy Cloudflare R2 remains
- * readable only while old objects are being migrated).
+ * Server-side gallery upload to Backblaze B2.
  *
  * Auth: Firebase ID token required; the caller must be an approved admin
  * holding "gallery.manage" (CTO always qualifies) — never client-checked.

@@ -1,10 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { saveMessage } from "@/lib/api";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { Mail, MapPin, Send, Loader2, CheckCircle, AlertCircle, ArrowRight } from "lucide-react";
 
 export default function ContactPage() {
+    // Signed-in visitors have nothing to sign up for, so the prompt is hidden.
+    // Only the auth session is observed here — no profile/tenure reads.
+    const [signedIn, setSignedIn] = useState(false);
+    useEffect(() => onAuthStateChanged(auth, u => setSignedIn(!!u)), []);
     const [formData, setFormData] = useState({
         name: "",
         email: "",
@@ -103,19 +109,21 @@ export default function ContactPage() {
                             </div>
                         </div>
 
-                        {/* Sign-up prompt */}
-                        <div className="p-8 rounded-3xl bg-gradient-to-br from-blue-900/20 to-purple-900/20 border border-white/10">
-                            <h3 className="text-2xl font-bold text-white mb-4">Join the Community</h3>
-                            <p className="text-gray-400 mb-6">
-                                Create an account with your college email to register for events and workshops.
-                            </p>
-                            <a
-                                href="/auth/signup"
-                                className="inline-flex items-center gap-2 text-white font-bold bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors"
-                            >
-                                Get Started <ArrowRight size={16} />
-                            </a>
-                        </div>
+                        {/* Sign-up prompt — only for visitors who are not signed in */}
+                        {!signedIn && (
+                            <div className="p-8 rounded-3xl bg-gradient-to-br from-blue-900/20 to-purple-900/20 border border-white/10">
+                                <h3 className="text-2xl font-bold text-white mb-4">Join the Community</h3>
+                                <p className="text-gray-400 mb-6">
+                                    Create an account with your college email to register for events and workshops.
+                                </p>
+                                <a
+                                    href="/auth/signup"
+                                    className="inline-flex items-center gap-2 text-white font-bold bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors"
+                                >
+                                    Get Started <ArrowRight size={16} />
+                                </a>
+                            </div>
+                        )}
                     </div>
 
                     {/* Contact Form */}

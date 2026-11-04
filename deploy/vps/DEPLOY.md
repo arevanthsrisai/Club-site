@@ -92,7 +92,9 @@ web config is public (it ships to every browser anyway).
 ## 3. Runtime secrets (NEVER in git, never in the build output)
 
 `FIREBASE_ADMIN_KEY`, `EMAIL_USER`, `EMAIL_PASS` are runtime-only. The build
-never sees them; only the node process does, via systemd:
+never sees them; only the node process does, via systemd. `CLUB_TIMEZONE` and
+`CRON_SECRET` (scheduled birthday mail, see §"Birthday e-mails" below) live
+in the same file when enabled:
 
 ```bash
 # On your own machine: encode the service-account JSON as ONE base64 line
@@ -186,6 +188,69 @@ Supervision model:
   Cloudflare health checks — free — or cron + curl from another box) polls
   `https://…/api/health` and alerts on non-200. That is the only monitoring
   this setup needs.
+
+## 5a. Birthday e-mails
+
+The admin dashboard (`/admin`) has a **Birthday E-mails** card: it lists who has
+a birthday today (active team members and registered students, de-duplicated
+by address) and, for the CTO, offers **Send wishes now** plus a
+**Send automatically every morning** switch. The switch is stored in
+`settings/birthday_emails` and only gates the scheduled run — a manual send
+always goes out. Both paths share one implementation and record who was mailed
+on the current club-local date, so nobody is ever wished twice in a day.
+
+Manual sending needs no scheduler: it uses `EMAIL_USER` / `EMAIL_PASS` from
+§3, and the button stays disabled with a clear message when those are missing.
+
+Automatic sending needs three things:
+
+```bash
+# 1. CRON_SECRET in the app's runtime env (same file as §3), then restart:
+sudo systemctl restart relu-website.service
+
+# 2. The same value in a separate, scheduler-only env file. Generate one with
+#    openssl rand -hex 32 (never reuse FIREBASE_ADMIN_KEY).
+sudo install -m 600 /dev/stdin /etc/relu-website/cron.env <<'EOF'
+CRON_SECRET=<the same value as in runtime.env>
+EOF
+sudo chown root:root /etc/relu-website/cron.env
+
+# 3. The oneshot service + daily timer (09:00 Asia/Kolkata)
+sudo install -m 644 /opt/relu-website/repo/deploy/vps/systemd/relu-birthdays.service \
+    /etc/systemd/system/relu-birthdays.service
+sudo install -m 644 /opt/relu-website/repo/deploy/vps/systemd/relu-birthdays.timer \
+    /etc/systemd/system/relu-birthdays.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now relu-birthdays.timer
+```
+
+Verify without waiting for morning (safe to run any time, it is idempotent):
+
+```bash
+systemctl list-timers relu-birthdays.timer      # next run
+sudo systemctl start relu-birthdays.service     # run the mailer now
+journalctl -u relu-birthdays -n 30 --no-pager   # what it answered
+curl -fsS -X POST http://127.0.0.1:3000/api/cron/birthdays \
+     -H "Authorization: Bearer <CRON_SECRET>"   # raw response
+```
+
+The route also answers `GET`, so a Cloud Scheduler / external cron job can hit
+`https://<host>/api/cron/birthdays` with the same bearer token instead of using
+systemd. It fails closed: no `CRON_SECRET` → 503, wrong token → 401.
+
+Behaviour worth knowing:
+
+- **Time zone**: "today" is resolved with `CLUB_TIMEZONE` (default
+  `Asia/Kolkata`), not the server clock. The timer uses the same zone in its
+  `OnCalendar=` line, so both agree on the date.
+- **A missed run catches up**: the timer is `Persistent=true`, so a reboot at
+  09:05 still mails that day when the box comes back.
+- **Allow-listed domains only**: recipients must be on
+  `av.students.amrita.edu`, `av.amrita.edu` or `gmail.com` (the club's own
+  mail policy, same list as `/api/send-email`); anyone else is skipped and
+  counted in the response, never mailed.
+- **Auditing**: each run that sends anything writes a `BIRTHDAY_EMAILS_SENT`
+  entry to the activity log with the count, date and recipients.
 
 ## 6. Deploy / update
 

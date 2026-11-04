@@ -1,0 +1,22 @@
+[Unit]
+Description=ReLU website - run the birthday mailer every morning
+Documentation=file:///opt/relu-website/repo/deploy/vps/DEPLOY.md
+
+[Timer]
+# 09:00 in the club's own time zone, regardless of how the box's clock is set.
+# The trailing zone name is part of the calendar spec (systemd >= 240), so this
+# stays correct on a UTC server as well as an IST one.
+OnCalendar=*-*-* 09:00:00 Asia/Kolkata
+
+# A missed run (box was off, night reboot, deploy window) happens on the next
+# boot instead of being skipped for the day. The route is idempotent per
+# person per day, so a catch-up run never double-mails anyone.
+Persistent=true
+
+# Spread nothing: one small HTTP call, no thundering herd.
+RandomizedDelaySec=0
+
+Unit=relu-birthdays.service
+
+[Install]
+WantedBy=timers.target

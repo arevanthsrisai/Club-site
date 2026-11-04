@@ -1,7 +1,7 @@
 // Regression tests for storage provider selection in src/lib/objectStorage.ts:
-// B2 is primary; legacy R2 is only a migration carve-out; nothing configured
-// means no provider (the app must then FAIL CLOSED with an actionable error,
-// never fall back to Firebase Storage).
+// B2 is the only provider; nothing configured means no provider (the app must
+// then FAIL CLOSED with an actionable error, never fall back to Firebase
+// Storage, and unrecognized variables like *_R2 must be ignored).
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { register } from 'node:module';
@@ -13,7 +13,7 @@ register('./alias-resolver.mjs', pathToFileURL(fileURLToPath(new URL('.', import
 
 const storage = await import('../src/lib/objectStorage.ts');
 
-const ENV_KEYS = [...storage.STORAGE_ENV_KEYS.b2, ...storage.STORAGE_ENV_KEYS.legacyR2];
+const ENV_KEYS = [...storage.STORAGE_ENV_KEYS.b2];
 
 function withEnv(values, fn) {
     const saved = {};
@@ -27,13 +27,15 @@ function withEnv(values, fn) {
     }
 }
 
-test('B2 wins when both B2 and legacy R2 variables are configured', () => {
+test('B2 is selected when its variables are configured (legacy R2 vars are ignored)', () => {
     withEnv({
         B2_S3_ENDPOINT: 'https://s3.eu-central-003.backblazeb2.com',
         B2_REGION: 'eu-central-003',
         B2_BUCKET_NAME: 'reluwebsite',
         B2_APPLICATION_KEY_ID: 'keyid',
         B2_APPLICATION_KEY: 'secret',
+        // Stale legacy R2 variables left behind in an env file must not
+        // resurrect any R2 code path: unknown keys are simply ignored.
         R2_ACCOUNT_ID: 'acct',
         R2_ACCESS_KEY_ID: 'r2id',
         R2_SECRET_ACCESS_KEY: 'r2secret',
@@ -43,7 +45,6 @@ test('B2 wins when both B2 and legacy R2 variables are configured', () => {
         const config = storage.getStorageConfig();
         assert.strictEqual(config.provider, 'b2');
         assert.strictEqual(config.bucketName, 'reluwebsite');
-        assert.strictEqual(config.publicBaseUrl, null, 'B2 is a private bucket: delivery is server-side only');
     });
 });
 
@@ -53,7 +54,7 @@ test('no provider is selected when nothing is configured (fail closed)', () => {
     });
 });
 
-test('a partial B2 configuration never quietly turns into R2', () => {
+test('a partial B2 configuration disables uploads (fail closed)', () => {
     withEnv({
         B2_S3_ENDPOINT: 'https://s3.eu-central-003.backblazeb2.com',
         B2_REGION: 'eu-central-003',

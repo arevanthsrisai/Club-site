@@ -138,6 +138,10 @@ function mapToMemberStats(u: AdminProfile, roles: ClubRole[]) {
     return {
         name: u.displayName || "Member",
         role: roleLabel(roles, u.role),
+        // RoleIcon keys off the role id, not the display label — without this
+        // every card falls back to the generic briefcase icon, while
+        // /admin/team shows the role-specific one.
+        roleId: u.role,
         image: u.photoURL || "", // Empty string triggers the fallback avatar
         links: {
             linkedin: safeHttpUrl(u.socials?.linkedin),
@@ -153,7 +157,7 @@ function TeamMemberCard({
     member,
     onOpen,
 }: {
-    member: { name: string; role: string; image: string };
+    member: { name: string; role: string; roleId: string; image: string };
     onOpen: () => void;
 }) {
     const initials = member.name.charAt(0).toUpperCase();
@@ -186,7 +190,7 @@ function TeamMemberCard({
                         )}
                     </div>
                     <div className="absolute -bottom-1 -right-1 bg-[#111] rounded-full p-1.5 border border-white/10 shadow z-10">
-                        <RoleIcon role={member.role} />
+                        <RoleIcon role={member.roleId} />
                     </div>
                 </div>
                 <h3 className="text-lg font-bold text-white mb-1 break-words group-hover:text-blue-300 transition-colors">{member.name}</h3>

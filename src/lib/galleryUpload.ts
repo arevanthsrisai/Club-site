@@ -84,7 +84,7 @@ export async function uploadGalleryMedia(
 /** One-shot capability check so the UI knows whether uploads are available. */
 export async function checkStorageConfigured(): Promise<{
     storageConfigured: boolean;
-    provider?: "b2" | "r2" | null;
+    provider?: "b2" | null;
     missingKeys?: string[];
 }> {
     const { getAuthHeaders } = await import("@/lib/authHeaders");

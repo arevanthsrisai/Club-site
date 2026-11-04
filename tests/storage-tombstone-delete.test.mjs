@@ -10,6 +10,10 @@
  * "0 bytes" ghost row, even for keys that never existed or whose versions
  * were just fully removed. Every admin delete route therefore sprayed
  * tombstones into the user's bucket view after every deletion.
+ *
+ * Since the legacy R2 provider was removed, B2 is the only provider and that
+ * final plain delete is simply never issued: the guard these comments
+ * describe is now "no version-id-less DeleteObject exists at all".
  */
 import { test } from 'node:test';
 import assert from 'node:assert';
@@ -26,23 +30,17 @@ function deletePermanentSource() {
     return source.slice(start, source.indexOf('export async function deleteObject(', start));
 }
 
-test('deleteObjectPermanent fires the plain DeleteObject only for non-B2 providers', () => {
-    // On B2, a plain version-id-less DeleteObject leaves a "hide marker"
-    // tombstone (0-byte row in the B2 web console) even when the object was
-    // already gone — so it must be provider-gated.
-    assert.match(deletePermanentSource(), /provider !== "b2"/);
+test('deleteObjectPermanent never fires a plain version-id-less DeleteObject (no B2 tombstones)', () => {
+    // A version-id-less DeleteObject on B2 leaves a "hide marker" tombstone
+    // (0-byte row in the B2 web console) even when the object was already
+    // gone — so the permanent-delete path must not contain one at all.
+    assert.doesNotMatch(
+        deletePermanentSource(),
+        /DeleteObjectCommand\(\{[^}]*Key: key[,} ][^}]*\}\)/,
+        'a version-id-less DeleteObject snuck back into deleteObjectPermanent',
+    );
 });
 
 test('deleteObjectPermanent still deletes every discovered version by VersionId (bytes are removed)', () => {
-    assert.match(deletePermanentSource(), /VersionId: item.VersionId/);
-});
-
-// Behavioral deep-check without network access: the provider gate ordering
-// must mean the plain delete happens AFTER the version loop, so a failed
-// version deletion aborts before the tombstone-prone call.
-test('plain delete is ordered after the version-level delete loop', () => {
-    const fn = deletePermanentSource();
-    const loopIdx = fn.indexOf('DeleteObjectCommand({ Bucket: config.bucketName, Key: item.Key, VersionId: item.VersionId })');
-    const gateIdx = fn.indexOf('provider !== "b2"');
-    assert.ok(loopIdx > 0 && gateIdx > loopIdx, 'plain delete must come after the version loop');
+    assert.match(deletePermanentSource(), /VersionId: item\.VersionId/);
 });

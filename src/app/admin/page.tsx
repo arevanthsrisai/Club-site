@@ -1,25 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/ui/Toast";
-import { roleLabel } from "@/lib/roles";
-import { isBirthdayToday, parseDateString } from "@/lib/birthdays";
+import { getAuthHeaders } from "@/lib/authHeaders";
 import {
     subscribeToEvents,
-    subscribeToAllAdmins,
     subscribeToPendingRegistrations,
     subscribeToTotalUsers,
     getEventRegistrationCounts,
     getResources,
     subscribeToMessages,
-    subscribeToRoles,
+    subscribeToBirthdayEmailSettings,
+    setBirthdayEmailsAutomatic,
 } from "@/lib/api";
-import type { AdminProfile, ContactMessage, Event, PendingRegistration, Resource } from "@/types";
-import type { ClubRole } from "@/lib/roles";
-import { Cake, CheckCircle } from "lucide-react";
+import type { AdminProfile } from "@/types";
+import type { ContactMessage, Event, PendingRegistration, Resource } from "@/types";
+import Image from "next/image";
+import { Cake, CheckCircle, Loader2, Mail } from "lucide-react";
 import {
     attentionItems,
     upcomingEvents,
@@ -95,7 +94,7 @@ export default function AdminDashboard() {
                 messages={messages}
             />
 
-            <BirthdayBanner />
+            <BirthdayEmailsCard />
 
             <ActionQueue items={queue} ready={!!events && !!pendingRegs} />
 
@@ -473,68 +472,87 @@ function ResourcePanel() {
     );
 }
 
-/* ── Shared chrome ──────────────────────────────────────────────────────── */
+/* ── Birthday e-mails ────────────────────────────────────────────────────── */
 
-/* ── Birthdays ───────────────────────────────────────────────────────────── */
+interface BirthdayRecipientView {
+    name: string;
+    kind: "team" | "student";
+    alreadySent: boolean;
+    /** May be populated for team members when the settings doc still holds a photoURL. */
+    photoURL?: string;
+}
+
+interface BirthdayPreview {
+    date: string;
+    timeZone: string;
+    automatic: boolean;
+    lastRunDate: string | null;
+    lastRunCount: number | null;
+    lastRunFailed: number | null;
+    canSend: boolean;
+    recipients: BirthdayRecipientView[];
+}
 
 /**
- * Birthday announcement for the dashboard, driven by each member's stored DOB.
- * It is a pure projection of the live admins snapshot: birthdays are matched
- * against the viewer's local calendar (leap-day Feb 29 → Feb 28 in common
- * years), only first-name + club role + photo appear, and no birth year or full
- * DOB is ever rendered. Nothing is stored, so the same member can never be
- * double-announced and the list repeats on every visit until the date passes.
+ * Birthday mail card.
+ *
+ * Names and counts come from the server (GET /api/birthday-send) rather than a
+ * client snapshot: that route covers active team members *and* students, and it
+ * knows who has already been wished today — so the button can never double-mail
+ * anyone, and the number on it matches the number of mails actually sent.
+ *
+ * The automatic switch is stored in settings/birthday_emails; the morning
+ * scheduler (/api/cron/birthdays) obeys it, while a manual send ignores it.
  */
-function BirthdayBanner() {
-    const [admins, setAdmins] = useState<AdminProfile[] | null>(null);
-    const [roles, setRoles] = useState<ClubRole[]>([]);
-    const { user } = useAuth();
-    const [sending, setSending] = useState(false);
-    const [wishesSent, setWishesSent] = useState(false);
+function BirthdayEmailsCard() {
+    const { user, profile } = useAuth();
     const toast = useToast();
+    const [preview, setPreview] = useState<BirthdayPreview | null>(null);
+    const [sending, setSending] = useState(false);
+    const [automatic, setAutomatic] = useState<boolean | null>(null);
+    const [savingAutomatic, setSavingAutomatic] = useState(false);
 
-    useEffect(() => {
-        const unsubs = [
-            subscribeToAllAdmins(setAdmins),
-            subscribeToRoles(setRoles),
-        ];
-        return () => unsubs.forEach(unsub => unsub());
+    const isCTO = profile?.role === "CTO";
+
+    const loadPreview = useCallback(async () => {
+        const headers = await getAuthHeaders();
+        if (!headers) return;
+        try {
+            const res = await fetch("/api/birthday-send", { headers, cache: "no-store" });
+            const payload = await res.json().catch(() => null);
+            if (!res.ok || !payload) return;
+            setPreview(payload as BirthdayPreview);
+        } catch {
+            // Leave the card hidden rather than showing a wrong count.
+        }
     }, []);
 
-    const birthdays = useMemo(() => {
-        if (!admins) return [];
-        const now = new Date();
-        return admins.filter(a => a.status === "active" && isBirthdayToday(a.dob, now));
-    }, [admins]);
-
-    if (!admins) return null;
-    if (birthdays.length === 0 && !wishesSent) return null;
-
-    const now = new Date();
-    const dayLabel = (dob?: string) => {
-        const parts = parseDateString(dob);
-        if (!parts) return undefined;
-        return new Date(now.getFullYear(), parts.month - 1, parts.day)
-            .toLocaleDateString(undefined, { month: "long", day: "numeric" });
-    };
-
-    const sendWishes = async () => {
+    useEffect(() => {
         if (!user) return;
+        loadPreview();
+        const unsubscribe = subscribeToBirthdayEmailSettings(settings => setAutomatic(settings.automatic));
+        return () => unsubscribe();
+    }, [user, loadPreview]);
+
+    const sendNow = async () => {
         setSending(true);
         try {
+            const headers = await getAuthHeaders();
+            if (!headers) throw new Error("You need to be signed in.");
             const res = await fetch("/api/birthday-send", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${await user.getIdToken()}`,
-                },
+                headers: { "Content-Type": "application/json", ...headers },
             });
             const payload = await res.json().catch(() => null);
             if (!res.ok || !payload?.success) {
                 throw new Error(payload?.error || "Could not send birthday wishes.");
             }
-            setWishesSent(true);
-            toast.success(`Birthday wishes sent to ${payload.sent ?? 0} member${payload.sent === 1 ? "" : "s"}.`);
+            if (payload.sent > 0) {
+                toast.success(`Birthday wishes sent to ${payload.sent} ${payload.sent === 1 ? "person" : "people"}.`);
+            } else {
+                toast.info(payload.message || "Nobody left to wish today.");
+            }
+            await loadPreview();
         } catch (err) {
             toast.error(err instanceof Error ? err.message : "Could not send birthday wishes.");
         } finally {
@@ -542,57 +560,135 @@ function BirthdayBanner() {
         }
     };
 
+    const toggleAutomatic = async (next: boolean) => {
+        setSavingAutomatic(true);
+        setAutomatic(next);
+        try {
+            await setBirthdayEmailsAutomatic(next);
+            toast.success(next ? "Automatic birthday e-mails enabled." : "Automatic birthday e-mails paused.");
+        } catch (err) {
+            setAutomatic(!next);
+            toast.error(err instanceof Error ? err.message : "Could not update the setting.");
+        } finally {
+            setSavingAutomatic(false);
+        }
+    };
+
+    // Nothing to show non-CTOs on a birthday-free day; the CTO still needs the
+    // card to reach the automation switch.
+    if (!preview) return null;
+    if (preview.recipients.length === 0 && !isCTO) return null;
+
+    const total = preview.recipients.length;
+    const pending = preview.recipients.filter(person => !person.alreadySent).length;
+    const automaticOn = automatic ?? preview.automatic;
+    const canSend = preview.canSend;
+
     return (
         <section
             aria-labelledby="birthdays-heading"
             className="rounded-2xl border border-pink-500/30 bg-pink-500/10 p-5"
         >
-            <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                     <Cake size={16} className="text-pink-400" aria-hidden="true" />
                     <h2 id="birthdays-heading" className="text-sm font-bold uppercase tracking-wider text-pink-300">
-                        Birthdays Today
+                        Birthday E-mails
                     </h2>
+                    <span className="text-xs text-gray-400">
+                        {total === 0
+                            ? "none today"
+                            : `${total} ${total === 1 ? "today" : "today"}${pending === 0 ? " · all wished" : ` · ${pending} still to wish`}`}
+                    </span>
                 </div>
-                {birthdays.length > 0 && user && (!wishesSent) && (
+                {canSend ? (
                     <button
                         type="button"
-                        onClick={sendWishes}
-                        disabled={sending}
-                        className="inline-flex items-center gap-2 rounded-lg border border-pink-500/30 bg-pink-500/10 px-3 py-2 text-xs font-semibold text-pink-300 hover:bg-pink-500/20 transition-colors disabled:opacity-60"
-                        aria-label={`Send birthday wishes to ${birthdays.length} member${birthdays.length === 1 ? "" : "s"}`}
+                        onClick={sendNow}
+                        disabled={sending || pending === 0}
+                        className="inline-flex items-center gap-2 rounded-lg border border-pink-500/30 bg-pink-500/10 px-3 py-2 text-xs font-semibold text-pink-300 hover:bg-pink-500/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        aria-label={pending === 0
+                            ? "Everyone with a birthday today has already been wished"
+                            : `Send birthday wishes to ${pending} ${pending === 1 ? "person" : "people"}`}
                     >
-                        {sending ? <Cake size={13} className="animate-spin" aria-hidden="true" /> : <Cake size={13} aria-hidden="true" />}
-                        {sending ? "Sending wishes…" : `Send Wishes (${birthdays.length})`}
+                        {sending
+                            ? <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                            : pending === 0
+                                ? <CheckCircle size={13} aria-hidden="true" />
+                                : <Mail size={13} aria-hidden="true" />}
+                        {sending ? "Sending…" : pending === 0 ? "All wished today" : `Send wishes now`}
                     </button>
-                )}
-                {wishesSent && (
-                    <span className="flex items-center gap-2 text-xs text-green-400">
-                        <CheckCircle size={13} aria-hidden="true" /> Wishes sent today
-                    </span>
+                ) : (
+                    <span className="text-xs text-gray-500">Only the CTO can send birthday e-mails.</span>
                 )}
             </div>
-            {birthdays.length > 0 && (
-                <ul className="space-y-3">
-                    {birthdays.map(a => (
-                        <li key={a.uid} className="flex items-center gap-3">
-                            <span className="w-10 h-10 rounded-full overflow-hidden bg-black/40 border border-white/10 shrink-0 relative" aria-hidden="true">
-                                {a.photoURL
-                                    ? <Image src={a.photoURL} alt="" fill sizes="40px" className="object-cover" />
-                                    : <span className="absolute inset-0 grid place-items-center text-gray-400 font-bold">{(a.displayName || a.email)[0].toUpperCase()}</span>}
+
+            {total === 0 ? (
+                <p className="mt-3 text-xs text-gray-400">
+                    No birthdays today. The automatic run still checks every morning.
+                </p>
+            ) : (
+                <ul className="mt-4 space-y-2">
+                    {preview.recipients.map((person, i) => (
+                        <li key={`${person.name}-${person.kind}-${i}`} className="flex items-center gap-3">
+                            {person.photoURL ? (
+                            <span className="grid place-items-center w-9 h-9 shrink-0">
+                                <Image
+                                    src={person.photoURL}
+                                    alt={person.name}
+                                    width={36}
+                                    height={36}
+                                    className="rounded-full ring-1 ring-inset ring-white/10 object-cover"
+                                />
                             </span>
-                            <div className="min-w-0">
-                                <p className="font-bold text-white truncate">
-                                    Happy Birthday, {a.displayName || a.email}! 🎂
-                                </p>
-                                <p className="text-xs text-gray-400">
-                                    {roleLabel(roles, a.role)}{dayLabel(a.dob) ? ` · ${dayLabel(a.dob)}` : ""}
-                                </p>
-                            </div>
+                        ) : (
+                            <span className="grid place-items-center w-8 h-8 rounded-full bg-black/30 border border-white/10 text-pink-300 shrink-0" aria-hidden="true">
+                                <Cake size={14} />
+                            </span>
+                        )}
+                            <span className="min-w-0 flex-1">
+                                <span className="block truncate font-medium text-white">{person.name}</span>
+                                <span className="text-[11px] uppercase tracking-wider text-gray-500">
+                                    {person.kind === "team" ? "Team" : "Student"}
+                                </span>
+                            </span>
+                            {person.alreadySent && (
+                                <span className="flex items-center gap-1 text-[11px] text-green-400 shrink-0">
+                                    <CheckCircle size={12} aria-hidden="true" /> wished
+                                </span>
+                            )}
                         </li>
                     ))}
                 </ul>
             )}
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+                <div className="flex items-center gap-3">
+                    <button
+                        type="button"
+                        id="birthday-auto-switch"
+                        role="switch"
+                        aria-checked={automaticOn}
+                        aria-labelledby="birthday-auto-label"
+                        onClick={() => toggleAutomatic(!automaticOn)}
+                        disabled={!isCTO || savingAutomatic || automatic === null}
+                        title={isCTO ? undefined : "Only the CTO can change this"}
+                        className={`relative inline-flex w-9 h-5 shrink-0 rounded-full border p-0.5 transition-colors focus-visible:ring-2 focus-visible:ring-pink-400 disabled:opacity-50 disabled:cursor-not-allowed ${automaticOn ? "bg-pink-600 border-pink-600" : "bg-black/40 border-white/20"}`}
+                    >
+                        <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${automaticOn ? "translate-x-4" : "translate-x-0"}`} aria-hidden="true" />
+                    </button>
+                    <label id="birthday-auto-label" htmlFor="birthday-auto-switch" className={`text-xs text-gray-300 ${isCTO ? "cursor-pointer" : ""}`}>
+                        Send automatically every morning
+                    </label>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                    {preview.lastRunDate
+                        ? `Last automatic send ${preview.lastRunDate} · ${preview.lastRunCount ?? 0} wish${preview.lastRunCount === 1 ? "" : "es"}`
+                        : "No automatic send recorded yet"}
+                    {preview.lastRunFailed ? ` · ${preview.lastRunFailed} failed` : ""}
+                    {` · ${preview.timeZone}`}
+                </p>
+            </div>
         </section>
     );
 }

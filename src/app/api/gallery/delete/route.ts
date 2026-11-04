@@ -4,8 +4,7 @@ import { getAdminContext, hasPermission, logServerActivity } from "@/lib/serverA
 import { getStorageConfig, deleteObjectPermanent, validateKey } from "@/lib/objectStorage";
 
 /**
- * Deletes a gallery item's stored objects from the configured object store
- * (Backblaze B2, or legacy Cloudflare R2 while files migrate). Admin-only
+ * Deletes a gallery item's stored objects from Backblaze B2. Admin-only
  * server check (gallery.manage permission), and every key must match our
  * approved namespace so no other part of the bucket can be reached.
  *

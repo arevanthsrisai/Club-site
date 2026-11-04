@@ -2,7 +2,13 @@
 // UTC-safe display formatting and leap-day-safe birthday matching.
 import test from 'node:test';
 import assert from 'node:assert';
-import { parseDateString, formatDisplayDate, isBirthdayToday } from '../src/lib/birthdays.ts';
+import {
+    parseDateString,
+    formatDisplayDate,
+    isBirthdayToday,
+    isBirthdayOnParts,
+    calendarPartsInTimeZone,
+} from '../src/lib/birthdays.ts';
 
 test('parseDateString accepts strict YYYY-MM-DD and rejects the rest', () => {
     assert.deepEqual(parseDateString('2000-03-15'), { year: 2000, month: 3, day: 15 });
@@ -45,6 +51,27 @@ test('isBirthdayToday matches the local calendar month + day, ignoring the year'
     assert.equal(isBirthdayToday('1960-03-15', march15), true);
     assert.equal(isBirthdayToday('not-a-dob', march15), false);
     assert.equal(isBirthdayToday(undefined, march15), false);
+});
+
+test('calendarPartsInTimeZone resolves the club date, not the server date', () => {
+    // 2026-03-15T20:00Z is already Mar 16 in IST (+05:30). The scheduler must
+    // mail on the club's date even when the process clock is UTC.
+    const lateUtc = new Date('2026-03-15T20:00:00Z');
+    assert.deepEqual(calendarPartsInTimeZone('Asia/Kolkata', lateUtc), { year: 2026, month: 3, day: 16 });
+    assert.deepEqual(calendarPartsInTimeZone('UTC', lateUtc), { year: 2026, month: 3, day: 15 });
+
+    // Just before midnight IST is still the previous day in UTC.
+    const earlyIst = new Date('2026-03-15T18:20:00Z');
+    assert.deepEqual(calendarPartsInTimeZone('Asia/Kolkata', earlyIst), { year: 2026, month: 3, day: 15 });
+});
+
+test('isBirthdayOnParts matches a resolved calendar day', () => {
+    assert.equal(isBirthdayOnParts('1998-03-16', { year: 2026, month: 3, day: 16 }), true);
+    assert.equal(isBirthdayOnParts('1998-03-15', { year: 2026, month: 3, day: 16 }), false);
+    // Feb 29 celebrates on Feb 28 in a common year, and only then.
+    assert.equal(isBirthdayOnParts('2000-02-29', { year: 2026, month: 2, day: 28 }), true);
+    assert.equal(isBirthdayOnParts('2000-02-29', { year: 2024, month: 2, day: 28 }), false);
+    assert.equal(isBirthdayOnParts(undefined, { year: 2026, month: 3, day: 16 }), false);
 });
 
 test('isBirthdayToday handles leap-day DOBs consistently', () => {

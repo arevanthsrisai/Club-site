@@ -40,6 +40,10 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
     const [permSearch, setPermSearch] = useState("");
     const [savingRole, setSavingRole] = useState(false);
     const [savingPerm, setSavingPerm] = useState(false);
+    // A reorder rewrites the rank of every role, so it is one logical save: the
+    // list locks itself while it is in flight instead of letting a second drop
+    // race it and persist a half-applied order.
+    const [savingOrder, setSavingOrder] = useState(false);
 
     const ordered = useMemo(() => [...roles].sort((a, b) => a.rank - b.rank), [roles]);
 
@@ -112,12 +116,13 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
     };
 
     const commitReorder = async (nextOrder: ClubRole[]) => {
-        if (!canReorder) return;
+        if (!canReorder || savingOrder) return;
         const changed = nextOrder.filter(next => {
             const prev = roles.find(r => r.id === next.id);
             return prev && prev.rank !== next.rank;
         });
         if (changed.length === 0) return;
+        setSavingOrder(true);
         try {
             await Promise.all(changed.map(next =>
                 saveRole({ id: next.id, label: next.label, description: next.description, rank: next.rank, limit: next.limit }, actorUid, actorName)
@@ -125,11 +130,13 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
             toast.success("Role order saved");
         } catch (e: any) {
             toast.error(e?.message || "Could not save the new order — the order was not changed.");
+        } finally {
+            setSavingOrder(false);
         }
     };
 
     const handleDrop = (targetId: string) => {
-        if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
+        if (savingOrder || !dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
         const nextOrder = reorderRoles(roles, dragId, targetId);
         setDragId(null);
         setDragOverId(null);
@@ -206,7 +213,9 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                 <aside className="space-y-2" aria-label="Club roles in precedence order">
                     <div className="flex items-center justify-between px-1">
                         <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Roles</span>
-                        <span className="text-xs text-gray-600">{ordered.length} total</span>
+                        <span className="text-xs text-gray-600" role="status">
+                            {savingOrder ? "Saving order…" : `${ordered.length} total`}
+                        </span>
                     </div>
 
                     <ul className="space-y-1.5" role="list">
@@ -220,7 +229,7 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                 <li
                                     key={role.id}
                                     draggable={canReorder}
-                                    onDragStart={(e) => { if (!canReorder) { e.preventDefault(); return; } setDragId(role.id); }}
+                                    onDragStart={(e) => { if (!canReorder || savingOrder) { e.preventDefault(); return; } setDragId(role.id); }}
                                     onDragOver={(e) => { if (canReorder && dragId) { e.preventDefault(); setDragOverId(role.id); } }}
                                     onDragLeave={() => setDragOverId(prev => (prev === role.id ? null : prev))}
                                     onDrop={(e) => { e.preventDefault(); handleDrop(role.id); }}
@@ -232,11 +241,12 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                 >
                                     {canReorder && (
                                         <span
-                                            className="flex items-center justify-center w-8 text-gray-600 cursor-grab active:cursor-grabbing border-r border-white/5"
-                                            title="Drag to reorder"
+                                            className={`flex flex-col items-center justify-center gap-0.5 w-9 shrink-0 border-r border-white/5 text-gray-600 ${savingOrder ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"}`}
+                                            title={`Position ${idx + 1} of ${ordered.length} — drag to reorder`}
                                             aria-hidden="true"
                                         >
-                                            <GripVertical size={14} />
+                                            <GripVertical size={13} />
+                                            <span className="text-[10px] font-mono leading-none tabular-nums">{idx + 1}</span>
                                         </span>
                                     )}
                                     <button
@@ -264,11 +274,13 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                         </div>
                                     </button>
                                     {canReorder && (
-                                        <div className="flex flex-col justify-center gap-0.5 pr-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                        // Always visible: the arrows are the keyboard/touch path
+                                        // to reorder, so they cannot be hover-only.
+                                        <div className="flex flex-col justify-center gap-0.5 pr-1.5">
                                             <button
                                                 type="button"
                                                 onClick={(e) => { e.stopPropagation(); moveRole(role.id, -1); }}
-                                                disabled={idx === 0}
+                                                disabled={idx === 0 || savingOrder}
                                                 aria-label={`Move ${role.label} up`}
                                                 className="p-0.5 rounded text-gray-500 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
                                             >
@@ -277,7 +289,7 @@ export default function RolesManager({ roles, holderCount, actorUid, actorName, 
                                             <button
                                                 type="button"
                                                 onClick={(e) => { e.stopPropagation(); moveRole(role.id, 1); }}
-                                                disabled={idx === ordered.length - 1}
+                                                disabled={idx === ordered.length - 1 || savingOrder}
                                                 aria-label={`Move ${role.label} down`}
                                                 className="p-0.5 rounded text-gray-500 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
                                             >

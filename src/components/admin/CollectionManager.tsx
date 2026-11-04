@@ -9,9 +9,13 @@ import { useToast } from "@/components/ui/Toast";
 interface CollectionManagerProps {
     collectionName: string;
     onClose: () => void;
+    /** Rules deny client writes for this collection (server routes own it), so
+     *  the create/edit/delete controls are hidden instead of failing on save. */
+    readOnly?: boolean;
 }
 
-export default function CollectionManager({ collectionName, onClose }: CollectionManagerProps) {
+export default function CollectionManager({ collectionName, onClose, readOnly = false }: CollectionManagerProps) {
+    const canWrite = !readOnly;
     const [docs, setDocs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedDoc, setSelectedDoc] = useState<any | null>(null);
@@ -160,7 +164,12 @@ export default function CollectionManager({ collectionName, onClose }: Collectio
                     <span className="text-gray-500 text-sm">({docs.length} docs visible)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                    {selectedIds.size > 0 && (
+                    {readOnly && (
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-yellow-500/80 border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 rounded">
+                            Read-only
+                        </span>
+                    )}
+                    {canWrite && selectedIds.size > 0 && (
                         <button
                             onClick={handleDeleteMultiple}
                             disabled={isDeletingMultiple}
@@ -170,12 +179,14 @@ export default function CollectionManager({ collectionName, onClose }: Collectio
                             Delete Selected ({selectedIds.size})
                         </button>
                     )}
-                    <button
-                        onClick={handleCreateStart}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-sm font-bold transition-colors"
-                    >
-                        <Plus size={16} /> Add Document
-                    </button>
+                    {canWrite && (
+                        <button
+                            onClick={handleCreateStart}
+                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-sm font-bold transition-colors"
+                        >
+                            <Plus size={16} /> Add Document
+                        </button>
+                    )}
                     <button
                         onClick={onClose}
                         className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors ml-2"
@@ -202,20 +213,22 @@ export default function CollectionManager({ collectionName, onClose }: Collectio
                         <table className="w-full text-left border-collapse">
                             <thead className="bg-white/5 text-xs uppercase text-gray-400 font-mono sticky top-0">
                                 <tr>
-                                    <th className="p-3 w-10">
-                                        <input 
-                                            type="checkbox" 
-                                            className="w-4 h-4 rounded border-gray-600 bg-black/40 text-blue-500 focus:ring-blue-500"
-                                            checked={docs.length > 0 && selectedIds.size === docs.length}
-                                            onChange={(e) => {
-                                                if (e.target.checked) setSelectedIds(new Set(docs.map(d => d.id)));
-                                                else setSelectedIds(new Set());
-                                            }}
-                                        />
-                                    </th>
+                                    {canWrite && (
+                                        <th className="p-3 w-10">
+                                            <input 
+                                                type="checkbox" 
+                                                className="w-4 h-4 rounded border-gray-600 bg-black/40 text-blue-500 focus:ring-blue-500"
+                                                checked={docs.length > 0 && selectedIds.size === docs.length}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setSelectedIds(new Set(docs.map(d => d.id)));
+                                                    else setSelectedIds(new Set());
+                                                }}
+                                            />
+                                        </th>
+                                    )}
                                     <th className="p-3">Document ID</th>
                                     <th className="p-3">Summary</th>
-                                    <th className="p-3 text-right">Actions</th>
+                                    {canWrite && <th className="p-3 text-right">Actions</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/5 font-mono text-sm">
@@ -229,39 +242,45 @@ export default function CollectionManager({ collectionName, onClose }: Collectio
                                             setIsCreating(false);
                                         }}
                                     >
-                                        <td className="p-3">
-                                            <input 
-                                                type="checkbox" 
-                                                className="w-4 h-4 rounded border-gray-600 bg-black/40 text-blue-500 focus:ring-blue-500"
-                                                checked={selectedIds.has(doc.id)}
-                                                onChange={(e) => {
-                                                    const next = new Set(selectedIds);
-                                                    if (e.target.checked) next.add(doc.id);
-                                                    else next.delete(doc.id);
-                                                    setSelectedIds(next);
-                                                }}
-                                                onClick={(e) => e.stopPropagation()}
-                                            />
-                                        </td>
+                                        {canWrite && (
+                                            <td className="p-3">
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="w-4 h-4 rounded border-gray-600 bg-black/40 text-blue-500 focus:ring-blue-500"
+                                                    checked={selectedIds.has(doc.id)}
+                                                    onChange={(e) => {
+                                                        const next = new Set(selectedIds);
+                                                        if (e.target.checked) next.add(doc.id);
+                                                        else next.delete(doc.id);
+                                                        setSelectedIds(next);
+                                                    }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                />
+                                            </td>
+                                        )}
                                         <td className="p-3 text-blue-300 truncate max-w-[150px]">{doc.id}</td>
                                         <td className="p-3 text-gray-400 truncate max-w-[200px]">
                                             {doc.name || doc.title || doc.email || doc.displayName || JSON.stringify(doc).slice(0, 30) + "..."}
                                         </td>
-                                        <td className="p-3 text-right">
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleEditStart(doc); }}
-                                                className="text-gray-400 hover:text-blue-400 p-1 transition-colors mr-2"
-                                            >
-                                                <Edit2 size={16} />
-                                            </button>
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleDelete(doc.id); }}
-                                                className="text-gray-500 hover:text-red-500 p-1 transition-colors"
-                                                disabled={deletingId === doc.id}
-                                            >
-                                                {deletingId === doc.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                                            </button>
-                                        </td>
+                                        {canWrite && (
+                                            <td className="p-3 text-right">
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleEditStart(doc); }}
+                                                    className="text-gray-400 hover:text-blue-400 p-1 transition-colors mr-2"
+                                                    aria-label={`Edit ${doc.id}`}
+                                                >
+                                                    <Edit2 size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDelete(doc.id); }}
+                                                    className="text-gray-500 hover:text-red-500 p-1 transition-colors"
+                                                    disabled={deletingId === doc.id}
+                                                    aria-label={`Delete ${doc.id}`}
+                                                >
+                                                    {deletingId === doc.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                                                </button>
+                                            </td>
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>
@@ -364,7 +383,7 @@ export default function CollectionManager({ collectionName, onClose }: Collectio
                                         Create Document
                                     </button>
                                 </>
-                            ) : (
+                            ) : canWrite ? (
                                 <>
                                     <button
                                         onClick={() => handleDelete(selectedDoc.id)}
@@ -379,14 +398,17 @@ export default function CollectionManager({ collectionName, onClose }: Collectio
                                         <Edit2 size={16} /> Edit
                                     </button>
                                 </>
-                            )}
+                            ) : null}
                         </div>
                     </div>
                 )}
             </div>
 
             <div className="p-2 border-t border-white/10 bg-yellow-500/5 text-yellow-500/70 text-xs flex items-center justify-center gap-2">
-                <AlertTriangle size={12} /> Changes here are immediate and irreversible. Proceed with caution.
+                <AlertTriangle size={12} />
+                {readOnly
+                    ? "Rules deny client writes to this collection — it is written by server routes only."
+                    : "Changes here are immediate and irreversible. Proceed with caution."}
             </div>
         </div>
     );

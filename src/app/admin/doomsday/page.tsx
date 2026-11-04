@@ -4,9 +4,11 @@ import { useState } from "react";
 import { useAuth, signOut } from "@/lib/auth";
 import { transferCTORole } from "@/lib/api";
 import { db, storage } from "@/lib/firebase"; // Import storage
-import { collection, getDocs, deleteDoc, doc, query, where, setDoc, Timestamp } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, query, where } from "firebase/firestore";
 import { ref, deleteObject } from "firebase/storage";
-import { Skull, AlertTriangle, Database, ShieldAlert, Folder, Users, Calendar, Image as ImageIcon, BookOpen, MessageSquare, Settings, ChevronRight, X, Trash2, Eraser, RefreshCw, TerminalSquare } from "lucide-react";
+import { getAuthHeaders } from "@/lib/authHeaders";
+import { validateKey } from "@/lib/storageValidation";
+import { Skull, AlertTriangle, Database, ShieldAlert, Shield, Folder, FolderKanban, Users, Calendar, Image as ImageIcon, BookOpen, MessageSquare, Settings, ChevronRight, X, Trash2, Eraser, RefreshCw, TerminalSquare, ClipboardList, FileText, KeyRound, History, UserCheck, Clock, GraduationCap, type LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import CollectionManager from "@/components/admin/CollectionManager";
 import SettingsPanel from "@/components/admin/SettingsPanel";
@@ -38,6 +40,56 @@ export default function DoomsdayPage() {
 
     const log = (msg: string) => {
         setPurgeProgress(prev => [...prev, msg]);
+    };
+
+    /**
+     * Removes a member's stored avatar files.
+     *
+     * Media moved to the B2 bucket: avatars now live under the `profiles/…`
+     * namespace and are addressed by a `/api/gallery/media?key=…` delivery URL,
+     * so they can only be deleted through /api/admin/delete-b2 (the client SDK
+     * has no handle on that bucket). Accounts created before the migration may
+     * still hold a Firebase Storage object, keyed by uid or by download URL.
+     */
+    const deleteAvatarFiles = async (uid: string, photoURL?: string | null) => {
+        try {
+            await deleteObject(ref(storage, `profiles/${uid}`));
+        } catch {
+            // No legacy object for this account — expected for B2-era users.
+        }
+        if (!photoURL) return;
+
+        if (photoURL.includes("firebasestorage.googleapis.com")) {
+            try {
+                await deleteObject(ref(storage, photoURL));
+            } catch {
+                // Already gone.
+            }
+            return;
+        }
+
+        // Preset avatars (/avatars/...) are app assets, not stored objects.
+        let key = photoURL;
+        if (key.includes("key=")) {
+            try {
+                key = new URL(key, window.location.origin).searchParams.get("key") ?? "";
+            } catch {
+                return;
+            }
+        }
+        if (!validateKey(key)) return;
+
+        try {
+            const headers = await getAuthHeaders();
+            if (!headers) return;
+            await fetch("/api/admin/delete-b2", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...headers },
+                body: JSON.stringify({ url: photoURL }),
+            });
+        } catch (error) {
+            console.warn("Avatar object cleanup skipped:", error);
+        }
     };
 
     const handleTransfer = async (e: React.FormEvent) => {
@@ -94,10 +146,8 @@ export default function DoomsdayPage() {
             for (const userDoc of snapshot.docs) {
                 const uid = userDoc.id;
 
-                // 2. Delete Avatar from Storage
-                try {
-                    await deleteObject(ref(storage, `profiles/${uid}`));
-                } catch (e) { } // Ignore not found
+                // 2. Delete the avatar objects (B2 bucket + legacy Firebase Storage)
+                await deleteAvatarFiles(uid, userDoc.data().photoURL);
 
                 // 3. Delete Firestore Document
                 await deleteDoc(doc(db, "users", uid));
@@ -146,8 +196,8 @@ export default function DoomsdayPage() {
                 let current = 0;
                 for (const userDoc of snapshot.docs) {
                     const uid = userDoc.id;
-                    // Delete Docs only, unverified usually don't have avatars yet but we can try
-                    try { await deleteObject(ref(storage, `profiles/${uid}`)); } catch (e) { }
+                    // Delete the profile doc and any avatar object it still owns
+                    await deleteAvatarFiles(uid, userDoc.data().photoURL);
                     await deleteDoc(doc(db, "users", uid));
                     current++;
                     log(`[${uid}] Deleted.`);
@@ -174,38 +224,24 @@ export default function DoomsdayPage() {
         log("Initializing Protocol 77 (SYNC PENDING)...");
 
         try {
-            // 1. Get all pending admins from 'admins' collection
-            const adminsRef = collection(db, "admins");
-            const qAdmins = query(adminsRef, where("role", "==", "pending"));
-            const adminsSnap = await getDocs(qAdmins);
-            log(`Found ${adminsSnap.size} admins with role='pending'.`);
+            // Rules only allow creating pending_registrations/{uid} for your own
+            // uid, so the repair runs through the CTO-gated server route (Admin
+            // SDK) instead of writing another admin's request from the client.
+            const headers = await getAuthHeaders();
+            if (!headers) throw new Error("Not signed in.");
 
-            // 2. Get all pending registrations
-            const pendingRef = collection(db, "pending_registrations");
-            const pendingSnap = await getDocs(pendingRef);
-            const pendingIds = new Set(pendingSnap.docs.map(d => d.id));
-            log(`Found ${pendingSnap.size} existing pending requests.`);
+            const res = await fetch("/api/admin/pending-registrations/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...headers },
+            });
+            const result = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(result?.error || `Request failed (${res.status}).`);
 
-            let fixed = 0;
-
-            // 3. Sync
-            for (const adminDoc of adminsSnap.docs) {
-                const uid = adminDoc.id;
-                const data = adminDoc.data();
-
-                if (!pendingIds.has(uid)) {
-                    log(`Restoring request for ${data.email}...`);
-                    await setDoc(doc(db, "pending_registrations", uid), {
-                        email: data.email,
-                        requestedAt: data.createdAt || Timestamp.now()
-                    });
-                    fixed++;
-                }
-            }
-
+            log(`Scanned ${result.scanned} admins with role='pending'.`);
+            (result.emails as string[] | undefined)?.forEach(email => log(`Restored request for ${email}.`));
             log("-----------------------------------");
-            log(`SYNC COMPLETE. ${fixed} requests restored.`);
-            toast(`Operation Complete. ${fixed} requests restored.`, "success");
+            log(`SYNC COMPLETE. ${result.restored} requests restored.`);
+            toast(`Operation Complete. ${result.restored} requests restored.`, "success");
 
         } catch (error: any) {
             console.error(error);
@@ -216,28 +252,53 @@ export default function DoomsdayPage() {
         }
     };
 
-    const collectionGroups = [
+    interface CollectionEntry {
+        id: string;
+        name: string;
+        icon: LucideIcon;
+        color: string;
+        /** firestore.rules sets `write: if false`: server routes own the data. */
+        readOnly?: boolean;
+    }
+
+    // Mirrors firestore.rules. Collections whose writes are server-only are
+    // marked readOnly so the console never offers an edit the rules reject.
+    const collectionGroups: { title: string; items: CollectionEntry[] }[] = [
         {
             title: "User Management",
             items: [
                 { id: 'admins', name: 'Admins', icon: ShieldAlert, color: 'text-purple-400' },
                 { id: 'users', name: 'Users', icon: Users, color: 'text-blue-400' },
                 { id: 'pending_registrations', name: 'Pending Admins', icon: AlertTriangle, color: 'text-orange-500' },
+                { id: 'club_roles', name: 'Club Roles', icon: Shield, color: 'text-purple-300' },
             ]
         },
         {
-            title: "Content",
+            title: "Content & Team",
             items: [
                 { id: 'events', name: 'Events', icon: Calendar, color: 'text-green-400' },
                 { id: 'gallery', name: 'Gallery', icon: ImageIcon, color: 'text-pink-400' },
                 { id: 'resources', name: 'Resources', icon: BookOpen, color: 'text-teal-400' },
+                { id: 'alumni', name: 'Alumni', icon: GraduationCap, color: 'text-amber-400' },
+                { id: 'ex_core_members', name: 'Ex-Core', icon: History, color: 'text-fuchsia-400' },
+                { id: 'projects', name: 'Projects', icon: FolderKanban, color: 'text-sky-400' },
+            ]
+        },
+        {
+            title: "Event Operations",
+            items: [
+                { id: 'registrations', name: 'Registrations', icon: Folder, color: 'text-orange-400' },
+                { id: 'invitations', name: 'Invitations', icon: Folder, color: 'text-blue-300' },
+                { id: 'attendance_records', name: 'Attendance', icon: UserCheck, color: 'text-emerald-400', readOnly: true },
+                { id: 'attendance_sessions', name: 'Sessions', icon: Clock, color: 'text-cyan-400', readOnly: true },
+                { id: 'event_secrets', name: 'Event Secrets', icon: KeyRound, color: 'text-red-300' },
+                { id: 'forms', name: 'Forms', icon: ClipboardList, color: 'text-indigo-300', readOnly: true },
+                { id: 'form_submissions', name: 'Submissions', icon: FileText, color: 'text-indigo-400', readOnly: true },
             ]
         },
         {
             title: "System Data",
             items: [
-                { id: 'registrations', name: 'Registrations', icon: Folder, color: 'text-orange-400' },
-                { id: 'invitations', name: 'Invitations', icon: Folder, color: 'text-blue-300' },
                 { id: 'feedbacks', name: 'Feedbacks', icon: MessageSquare, color: 'text-yellow-200' },
                 { id: 'messages', name: 'Messages', icon: MessageSquare, color: 'text-indigo-400' },
                 { id: 'audit_logs', name: 'Audit Logs', icon: Database, color: 'text-red-500' },
@@ -245,6 +306,8 @@ export default function DoomsdayPage() {
             ]
         }
     ];
+
+    const activeEntry = collectionGroups.flatMap(group => group.items).find(item => item.id === activeCollection);
 
     return (
         <div className="max-w-7xl mx-auto text-white pb-20">
@@ -293,6 +356,7 @@ export default function DoomsdayPage() {
                         <CollectionManager
                             collectionName={activeCollection}
                             onClose={() => setActiveCollection(null)}
+                            readOnly={activeEntry?.readOnly ?? false}
                         />
                     ) : (
                         <div className="h-[600px] border border-white/5 border-dashed rounded-2xl flex flex-col items-center justify-center text-gray-600 bg-white/[0.02]">

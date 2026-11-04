@@ -33,7 +33,11 @@ export async function saveRole(role: ClubRole, actorUid?: string, actorName?: st
     if (role.id === DEFAULT_ROLE_ID && role.limit !== null) throw new Error("Activator must stay unlimited.");
     // Ex-Core Member must never gain permissions: force the empty set no
     // matter what the caller sent (UI lock, API guard or corrupted payload).
-    if (role.id === EX_CORE_ROLE.id) return saveRole({ ...role, permissions: [] }, actorUid, actorName);
+    // Normalize here instead of re-calling saveRole — a recursive call with
+    // the same id re-entered this branch forever ("Maximum call stack size
+    // exceeded") on any save that touched the Ex-Core role, including every
+    // reorder, since reordering re-ranks the whole list.
+    const permissions = role.id === EX_CORE_ROLE.id ? [] : role.permissions;
     const { id, ...data } = role;
     // Build a clean payload: never write undefined fields (Firestore rejects
     // them), and only include fields that are actually present so a partial
@@ -44,7 +48,7 @@ export async function saveRole(role: ClubRole, actorUid?: string, actorName?: st
     if (data.description !== undefined) payload.description = data.description;
     if (data.rank !== undefined) payload.rank = data.rank;
     if (data.limit !== undefined) payload.limit = data.limit;
-    if (data.permissions !== undefined) payload.permissions = data.permissions;
+    if (permissions !== undefined) payload.permissions = permissions;
     await setDoc(doc(rolesCollection(db), id), payload, { merge: true });
     if (actorUid) await logActivity(actorUid, actorName || "Unknown", "SAVE_ROLE", { role: id, ...payload });
 }

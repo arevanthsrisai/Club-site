@@ -87,4 +87,6 @@ Environment variables are listed in `.env.example`:
 
 - `NEXT_PUBLIC_FIREBASE_*`: web app config, baked in at build time.
 - `FIREBASE_ADMIN_KEY`: base64 service account JSON for the Admin SDK. On Cloud Run it is left empty and the service account's default credentials are used. That account needs Firestore and Firebase Auth access.
-- `EMAIL_USER`, `EMAIL_PASS`: Gmail account and app password for `/api/send-email`. On Cloud Run, `EMAIL_PASS` comes from the `email-pass` secret in Secret Manager.
+- `EMAIL_USER`, `EMAIL_PASS`: Gmail account and app password for `/api/send-email` and the birthday mailer. On Cloud Run, `EMAIL_PASS` comes from the `email-pass` secret in Secret Manager.
+- `CLUB_TIMEZONE`: birthday mail only — which calendar day counts as "today" (default `Asia/Kolkata`).
+- `CRON_SECRET`: birthday mail only — bearer token a scheduled cron must present to `/api/cron/birthdays`; unset disables scheduled mail, manual sends from the dashboard still work.

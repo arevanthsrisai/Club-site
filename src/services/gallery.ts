@@ -5,24 +5,6 @@ import { deleteFileByUrl } from "./storage";
 
 // --- Gallery API ---
 
-/**
- * Uploads one gallery item to object storage (Backblaze B2) through the secure
- * server route. Kept as a thin alias for the shared implementation in
- * @/lib/galleryUpload; new code should import from there directly.
- *
- * There is no Firebase Storage fallback: without object-storage configuration
- * the server route answers 503 and this rejects with that actionable error.
- */
-export async function uploadGalleryToR2(
-    file: File,
-    eventId: string,
-    onProgress?: (pct: number) => void,
-): Promise<{ url: string; key: string; storedSize?: number; lossless?: boolean }> {
-    const { uploadGalleryMedia } = await import("@/lib/galleryUpload");
-    const res = await uploadGalleryMedia(file, eventId, onProgress);
-    return { url: res.url, key: res.key, storedSize: res.storedSize };
-}
-
 export async function getEventGallery(eventId: string): Promise<GalleryImage[]> {
     try {
         const q = query(

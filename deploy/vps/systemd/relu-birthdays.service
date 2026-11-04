@@ -1,0 +1,42 @@
+[Unit]
+Description=ReLU website - daily birthday e-mails
+Documentation=file:///opt/relu-website/repo/deploy/vps/DEPLOY.md
+Wants=network-online.target
+After=network-online.target relu-website.service
+# If the site is down, retrying in a minute is more useful than failing the
+# whole day's run: the timer fires again on its next scheduled tick, but this
+# also lets a manual `systemctl start` succeed once the app is back.
+Requires=relu-website.service
+
+[Service]
+Type=oneshot
+User=relu
+Group=relu
+
+# Holds CRON_SECRET (same value the app has in /etc/relu-website/runtime.env).
+# SYSTEMD READS THIS FILE AS ROOT; keep it 0600 root:root. If the file is
+# missing, ExecStart below fails closed against the route's 503, and the unit
+# shows as failed in `systemctl status` instead of silently sending nothing.
+EnvironmentFile=/etc/relu-website/cron.env
+
+# The secret stays inside the shell: it is never written to the unit file, the
+# command line of the shell, or the journal. The app is only reachable on
+# loopback (nginx owns :80/:443), so this never leaves the box.
+ExecStart=/bin/sh -c 'set -eu; test -n "${CRON_SECRET:-}" || { echo "relu-birthdays: CRON_SECRET is not set in /etc/relu-website/cron.env" >&2; exit 78; }; exec /usr/bin/curl -fsS --max-time 120 -X POST -H "Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3000/api/cron/birthdays'
+
+# No restart loop: the timer owns the schedule, and the route is idempotent per
+# person per club-local day, so the next run simply picks up whoever is left.
+Restart=no
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=relu-birthdays
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Nothing is written to disk; /etc is read only for the env file above.
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

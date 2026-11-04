@@ -21,7 +21,6 @@ import {
     Shield,
     GraduationCap,
     History,
-    ClipboardList
 } from "lucide-react";
 import NotificationBell from "@/components/public/NotificationBell";
 
@@ -46,7 +45,6 @@ export default function Navbar() {
         { name: "About", path: "/about", icon: Users },
         { name: "Ex-Core", path: "/ex-core", icon: History },
         { name: "Events", path: "/events", icon: Megaphone },
-        { name: "Forms", path: "/forms", icon: ClipboardList },
         { name: "Alumni", path: "/alumni", icon: GraduationCap },
         // AIML and DSA moved to Resources dropdown
     ];

@@ -44,11 +44,23 @@ steps:
 
       # Add/update runtime variables without removing existing ones
       - '--update-env-vars'
-      - 'EMAIL_USER=$_EMAIL_USER,B2_S3_ENDPOINT=$_B2_S3_ENDPOINT,B2_REGION=$_B2_REGION,B2_BUCKET_NAME=$_B2_BUCKET_NAME,FIRESTORE_DATABASE_ID=$_FIRESTORE_DATABASE_ID'
+      - 'CLUB_TIMEZONE=$_CLUB_TIMEZONE,EMAIL_USER=$_EMAIL_USER,B2_S3_ENDPOINT=$_B2_S3_ENDPOINT,B2_REGION=$_B2_REGION,B2_BUCKET_NAME=$_B2_BUCKET_NAME,FIRESTORE_DATABASE_ID=$_FIRESTORE_DATABASE_ID'
 
       # Add/update secrets without removing existing secret mappings
       - '--update-secrets'
       - 'EMAIL_PASS=email-pass:latest,FIREBASE_ADMIN_KEY=firebase-admin-key:latest,B2_APPLICATION_KEY_ID=b2-application-key-id:latest,B2_APPLICATION_KEY=b2-application-key:latest'
+
+      # AUTOMATIC BIRTHDAY MAIL on Cloud Run (optional, documented but OFF
+      # until you follow these three steps — do not uncomment early, a missing
+      # Secret Manager secret fails the deploy itself):
+      #   1. Create the secret once (same value the scheduler will send):
+      #        gcloud secrets create cron-secret --data-file=<(openssl rand -hex 32)
+      #   2. Append to --update-secrets above:  ,CRON_SECRET=cron-secret:latest
+      #   3. Point Cloud Scheduler (or any cron) at the deployed URL:
+      #        POST https://<cloud-run-domain>/api/cron/birthdays
+      #        Authorization: Bearer <that same generated value>
+      # Leave OFF to keep scheduled mail disabled — the route answers 503 and
+      # the CTO can still send manually from the admin dashboard.
 
 images:
   - 'gcr.io/$PROJECT_ID/relu-website'
@@ -59,6 +71,7 @@ substitutions:
 
   # Cloud Run runtime environment variables
   _FIRESTORE_DATABASE_ID: '(default)'
+  _CLUB_TIMEZONE: 'Asia/Kolkata'
   _EMAIL_USER: 'reluavv@gmail.com'
   _B2_S3_ENDPOINT: 'https://s3.eu-central-003.backblazeb2.com'
   _B2_REGION: 'eu-central-003'

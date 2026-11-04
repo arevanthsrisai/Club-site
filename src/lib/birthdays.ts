@@ -36,22 +36,50 @@ function isLeapYear(year: number): boolean {
 }
 
 /**
- * Birthday check against the caller's local calendar (pass `new Date()`).
+ * The calendar day (month/day/year) in a specific IANA time zone.
+ *
+ * Scheduled mail runs on a server whose clock may be UTC while the club lives
+ * in IST, so "today" must be resolved in the club's zone instead of whatever
+ * the process happens to be set to. Intl gives the wall-clock parts directly,
+ * with no manual offset math.
+ */
+export function calendarPartsInTimeZone(timeZone: string, at: Date): DateParts {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    });
+    // en-CA formats as YYYY-MM-DD, so the parts come back in a stable order.
+    const formatted = formatter.format(at);
+    const [year, month, day] = formatted.split("-").map(Number);
+    return { year, month, day };
+}
+
+/**
+ * Birthday check against a given calendar day (see calendarPartsInTimeZone).
  * Feb 29 birthdays are celebrated on Feb 28 in non-leap years so the member
  * still gets their announcement every year. No birth year is used or returned.
  */
-export function isBirthdayToday(dob: unknown, now: Date): boolean {
+export function isBirthdayOnParts(dob: unknown, today: DateParts): boolean {
     const parts = parseDateString(dob);
     if (!parts) return false;
-    const todayMonth = now.getMonth() + 1;
-    const todayDay = now.getDate();
     // Feb 29 → Feb 28 fallback in non-leap years (checked first, so the same-
     // month comparison below never swallows the fallback).
-    if (parts.month === 2 && parts.day === 29 && !isLeapYear(now.getFullYear())) {
-        return todayMonth === 2 && todayDay === 28;
+    if (parts.month === 2 && parts.day === 29 && !isLeapYear(today.year)) {
+        return today.month === 2 && today.day === 28;
     }
-    if (parts.month === todayMonth) return parts.day === todayDay;
+    if (parts.month === today.month) return parts.day === today.day;
     return false;
+}
+
+/** Birthday check against the caller's local calendar (pass `new Date()`). */
+export function isBirthdayToday(dob: unknown, now: Date): boolean {
+    return isBirthdayOnParts(dob, {
+        year: now.getFullYear(),
+        month: now.getMonth() + 1,
+        day: now.getDate(),
+    });
 }
 
 /** Human "15 Mar 2000" date built from local parts — UTC-safe by construction. */
