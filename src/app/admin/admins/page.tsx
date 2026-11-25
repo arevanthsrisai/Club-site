@@ -6,6 +6,7 @@ import { getAuthHeaders } from "@/lib/authHeaders";
 import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, EX_CORE_ROLE, roleLabel, withBuiltIns, sortMembersByRole } from "@/lib/roles";
 import type { ExCoreMember } from "@/lib/excore";
 import { normalizeEmail } from "@/lib/normalizeEmail";
+import { isPendingSignup } from "@/lib/signupRequest";
 import RolesManager from "@/components/admin/RolesManager";
 import { useAuth } from "@/lib/auth";
 import { Check, X, Shield, Trash2, User, Users, Tag, Pencil, Search, ChevronDown, History, Undo2 } from "lucide-react";
@@ -43,8 +44,14 @@ export default function AdminUsersPage() {
     const [nickInitial, setNickInitial] = useState<string | undefined>(undefined);
     // Admin list search: finds by nickname OR email (normalized) or name/uid.
     const [adminSearchInput, setAdminSearchInput] = useState("");
+    // The same search for the separate Ex-Core accounts section.
+    const [exCoreSearchInput, setExCoreSearchInput] = useState("");
 
     const adminSearch = normalizeEmail(adminSearchInput) || adminSearchInput.trim().toLowerCase();
+    const exCoreSearch = normalizeEmail(exCoreSearchInput) || exCoreSearchInput.trim().toLowerCase();
+    // Typing a search opens the (default-collapsed) Ex-Core section so results
+    // are never hidden behind a closed header.
+    const showExCoreList = exCoreOpen || exCoreSearch.length > 0;
 
     const openNicknameEditor = (admin: AdminProfile) => {
         setNickTarget(admin);
@@ -177,7 +184,9 @@ export default function AdminUsersPage() {
             else toast.warning("User approved, but the email could not be sent.");
         } catch (e) {
             console.error(e);
-            toast.error("Error approving user");
+            // Surface the real reason: stale requests are refused by the
+            // service guard instead of silently promoting the account.
+            toast.error(e instanceof Error && e.message ? e.message : "Error approving user");
         }
     };
 
@@ -193,7 +202,7 @@ export default function AdminUsersPage() {
             if (!sent) toast.warning("Request rejected, but the email could not be sent.");
         } catch (e) {
             console.error(e);
-            toast.error("Error rejecting user");
+            toast.error(e instanceof Error && e.message ? e.message : "Error rejecting user");
         }
     };
 
@@ -403,8 +412,14 @@ export default function AdminUsersPage() {
                 </h2>
                 <div className="space-y-4">
                     {(() => {
-                        // Merge pending_registrations and admins with role="pending"
-                        const combinedPending = [...pendingRegs];
+                        // Merge pending_registrations and admins with role="pending".
+                        // Requests whose admin record has already moved on (approved,
+                        // or self-onboarded as Ex-Core) are stale: approve/reject
+                        // refuse them, so never show them as actionable.
+                        const adminByUid = new Map(admins.map(a => [a.uid, a] as const));
+                        const combinedPending = pendingRegs.filter(reg =>
+                            isPendingSignup(adminByUid.get(reg.id)?.role),
+                        );
                         admins.filter(a => a.role === "pending").forEach(a => {
                             if (!combinedPending.find(p => p.email === a.email || p.id === a.uid)) {
                                 combinedPending.push({
@@ -580,23 +595,37 @@ export default function AdminUsersPage() {
                 permission set is easy to find and manage. The role is fixed:
                 “Ex-Core Member” grants nothing, permanently. */}
             <div className="mt-12">
-                <h2 className="text-xl font-bold text-purple-500">
-                    <button
-                        type="button"
-                        onClick={() => setExCoreOpen(o => !o)}
-                        aria-expanded={exCoreOpen}
-                        className="flex items-center gap-2 hover:text-purple-400 transition-colors cursor-pointer"
-                    >
-                        <History size={20} /> Ex-Core Accounts
-                        <ChevronDown size={16} className={`transition-transform ${exCoreOpen ? "" : "-rotate-90"}`} aria-hidden="true" />
-                    </button>
-                </h2>
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+                    <h2 className="text-xl font-bold text-purple-500">
+                        <button
+                            type="button"
+                            onClick={() => setExCoreOpen(o => !o)}
+                            aria-expanded={exCoreOpen}
+                            className="flex items-center gap-2 hover:text-purple-400 transition-colors cursor-pointer"
+                        >
+                            <History size={20} /> Ex-Core Accounts
+                            <ChevronDown size={16} className={`transition-transform ${exCoreOpen ? "" : "-rotate-90"}`} aria-hidden="true" />
+                        </button>
+                    </h2>
+                    {/* Same identifiers as the Active Team search: nickname or email. */}
+                    <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" aria-hidden="true" />
+                        <input
+                            type="search"
+                            aria-label="Search Ex-Core accounts by nickname or email"
+                            placeholder="Search nickname or email…"
+                            value={exCoreSearchInput}
+                            onChange={e => setExCoreSearchInput(e.target.value)}
+                            className="bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm w-64 md:w-72"
+                        />
+                    </div>
+                </div>
                 <p className="text-xs text-gray-500 mt-1 mb-4 max-w-2xl">
                     Former team members whose account now lives under Ex-Core. Their role is “Ex-Core Member” and grants
                     no permissions; add new Ex-Core members from the Ex-Core page.
                 </p>
 
-                {exCoreOpen && (
+                {showExCoreList && (
                     <div className="space-y-4">
                         {(() => {
                             const exCoreList = sortMembersByRole(
@@ -604,9 +633,23 @@ export default function AdminUsersPage() {
                                 roles,
                             );
                             if (exCoreList.length === 0) {
-                                return <p className="text-gray-500 italic">No Ex-Core accounts.</p>;
+                                return (
+                                    <p className="text-gray-500 italic">
+                                        {exCoreSearch ? `No Ex-Core accounts match “${exCoreSearch}”.` : "No Ex-Core accounts."}
+                                    </p>
+                                );
                             }
-                            return exCoreList.map(admin => (
+                            const matching = exCoreSearch
+                                ? exCoreList.filter(a =>
+                                    (a.nickname && a.nickname.toLowerCase().includes(exCoreSearch)) ||
+                                    normalizeEmail(a.email || "")?.includes(exCoreSearch) ||
+                                    (a.displayName || "").toLowerCase().includes(exCoreSearch) ||
+                                    a.uid.toLowerCase().includes(exCoreSearch))
+                                : exCoreList;
+                            if (matching.length === 0) {
+                                return <p className="text-gray-500 italic">No Ex-Core accounts match “{exCoreSearch}”.</p>;
+                            }
+                            return matching.map(admin => (
                                 <div key={admin.uid} className="bg-white/5 border border-purple-500/20 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                     <div>
                                         <div className="flex flex-wrap items-center gap-2 mb-1">

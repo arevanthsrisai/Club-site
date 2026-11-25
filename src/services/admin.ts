@@ -5,6 +5,7 @@ import { logActivity } from "./audit";
 import { deleteUserData } from "./users";
 import { isPasswordStrong } from "@/lib/schemas";
 import { ClubRole, CTO_ROLE, DEFAULT_ROLE_ID, DEFAULT_ROLES, EX_CORE_ROLE } from "@/lib/roles";
+import { isPendingSignup } from "@/lib/signupRequest";
 import { normalizeEmail } from "@/lib/normalizeEmail";
 import { assertEmailNotInUse } from "@/services/emails";
 
@@ -41,8 +42,9 @@ export async function checkTenure(admin: AdminProfile) {
     if (admin.role === "CTO") return false; // CTO is immune to tenure expiry
     // Ex-Core accounts NEVER expire automatically: they are permanent
     // hand-off records (their club tenure already ended when they moved to
-    // Ex-Core). Their approvedAt timestamp must never trigger deletion.
-    if (admin.role === EX_CORE_ROLE.id) return false;
+    // Ex-Core). Their approvedAt timestamp must never trigger deletion. The
+    // exCoreAt marker covers legacy hand-offs that still carry an old role.
+    if (admin.role === EX_CORE_ROLE.id || admin.exCoreAt) return false;
 
     const startDate = admin.approvedAt || admin.createdAt;
     if (!startDate) return;
@@ -238,44 +240,50 @@ export function subscribeToPendingRegistrations(callback: (regs: PendingRegistra
 }
 
 export async function approveRegistration(uid: string, actorUid?: string, actorName?: string) {
-    let email = "";
-    let createdAt = Timestamp.now();
-
-    // 1. Try to get from pending_registrations
+    const adminRef = doc(db, "admins", uid);
     const pendingRef = doc(db, "pending_registrations", uid);
-    const pendingSnap = await getDoc(pendingRef);
+    const [adminSnap, pendingSnap] = await Promise.all([getDoc(adminRef), getDoc(pendingRef)]);
+    const adminData = adminSnap.exists() ? adminSnap.data() : undefined;
+    const pendingData = pendingSnap.exists() ? pendingSnap.data() : undefined;
 
-    if (pendingSnap.exists()) {
-        const data = pendingSnap.data();
-        email = normalizeIncomingEmail(data.email);
-        createdAt = data.requestedAt;
-        // Delete from pending
-        await deleteDoc(pendingRef);
-    } else {
-        // 2. Fallback: Check if user exists in 'admins' with role 'pending'
-        const adminRef = doc(db, "admins", uid);
-        const adminSnap = await getDoc(adminRef);
-
-        if (adminSnap.exists() && adminSnap.data().role === "pending") {
-            const data = adminSnap.data();
-            email = normalizeIncomingEmail(data.email);
-            createdAt = data.createdAt;
-        } else {
-            throw new Error("Registration request not found");
-        }
+    // A request can only be approved while its account is genuinely pending.
+    // A stale pending_registrations doc can outlive signup (for example after
+    // self-service Ex-Core onboarding); approving it would silently turn the
+    // Ex-Core account into an onboarding Activator with admin authority.
+    if (!isPendingSignup(adminData?.role)) {
+        throw new Error("This account is no longer pending — refresh the list.");
     }
 
-    // 3. Create/Update Admin Profile with 'onboarding' status
-    // Default role is 'Activator' (No limit)
-    // We use setDoc with merge: true to avoid overwriting existing fields if falling back
-    await setDoc(doc(db, "admins", uid), {
+    const rawEmail = adminData?.email ?? pendingData?.email;
+    if (!rawEmail) {
+        throw new Error("Registration request not found");
+    }
+
+    const email = normalizeIncomingEmail(rawEmail);
+    // Maintain the original request time when either record still has it.
+    const createdAt = adminData?.createdAt ?? pendingData?.requestedAt ?? Timestamp.now();
+
+    // Create/Update the Admin Profile with 'onboarding' status.
+    // Default role is 'Activator' (No limit).
+    // setDoc with merge: true keeps any fields the request already carried.
+    await setDoc(adminRef, {
         uid,
         email,
         role: "Activator",
         status: "onboarding", // Forces user to fill profile
-        createdAt: createdAt, // Maintain original request time
+        createdAt, // Maintain original request time
         approvedAt: Timestamp.now() // Tenure Starts Now
     }, { merge: true });
+
+    // The approval above is authoritative; a failed cleanup must not report
+    // the approval as failed. approveRegistration now refuses to re-approve.
+    if (pendingSnap.exists()) {
+        try {
+            await deleteDoc(pendingRef);
+        } catch (err) {
+            console.warn("Approved, but could not delete the pending request:", err);
+        }
+    }
 
     if (actorUid) {
         await logActivity(actorUid, actorName || "Unknown", "APPROVE_ADMIN", { targetUid: uid, email });
@@ -283,10 +291,24 @@ export async function approveRegistration(uid: string, actorUid?: string, actorN
 }
 
 export async function rejectRegistration(uid: string, actorUid?: string, actorName?: string) {
-    // 1. Perform Full Data Wipe (Pending + User + Admin + Data)
+    const adminRef = doc(db, "admins", uid);
+    const pendingRef = doc(db, "pending_registrations", uid);
+    const [adminSnap, pendingSnap] = await Promise.all([getDoc(adminRef), getDoc(pendingRef)]);
+    const adminData = adminSnap.exists() ? adminSnap.data() : undefined;
+
+    // Reject deletes the account. Never let a stale request delete an account
+    // that has already been approved or moved to Ex-Core.
+    if (!isPendingSignup(adminData?.role)) {
+        throw new Error("This account is no longer pending — refresh the list.");
+    }
+    if (!adminSnap.exists() && !pendingSnap.exists()) {
+        throw new Error("Registration request not found");
+    }
+
+    // Perform the full data wipe (pending request + admin profile + Auth user).
     await deleteUserData(uid);
 
-    // 2. Log Audit
+    // Log Audit
     if (actorUid) {
         await logActivity(actorUid, actorName || "Unknown", "REJECT_ADMIN", { targetUid: uid });
     }

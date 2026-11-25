@@ -51,7 +51,7 @@ export async function POST(request: Request) {
         const ctx = await getAdminContext(request);
         if (!ctx) return unauthorized();
         // Ex-Core members may upload to profiles/avatars only (for their own public profile).
-        const isExCore = ctx.role === 'ExCoreMember';
+        const isExCore = ctx.isExCore;
         if (!hasPermission(ctx, 'gallery.manage') && !isExCore) return forbidden('gallery.manage');
 
         const config = getStorageConfig();
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
         const path = typeof data.get('path') === 'string' ? (data.get('path') as string) : '';
 
         // Ex-Core members may only upload to profiles/avatars (their own profile picture).
-        if (ctx.role === 'ExCoreMember' && path !== 'profiles' && path !== 'avatars') {
+        if (isExCore && path !== 'profiles' && path !== 'avatars') {
             return NextResponse.json({ error: 'Ex-Core accounts may only upload to profiles/avatars.' }, { status: 403 });
         }
 

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
-import { verifyAuthToken } from '@/lib/serverAuth';
-import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { getAdminContext, unauthorized, forbidden } from '@/lib/serverAuthz';
 
 // Allowed recipient domains (prevents open relay abuse)
 const ALLOWED_RECIPIENT_DOMAINS = [
@@ -16,16 +15,12 @@ function escapeHtml(value: string) {
 
 export async function POST(request: Request) {
     try {
-        const authResult = await verifyAuthToken(request);
-        if (!authResult) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
-        // Only the CTO approves admins, which is the only flow that sends mail.
-        const adminDoc = await getAdminFirestore().collection('admins').doc(authResult.uid).get();
-        if (adminDoc.data()?.role !== 'CTO') {
-            return NextResponse.json({ error: 'Forbidden: CTO role required' }, { status: 403 });
-        }
+        // Only an active CTO approves admins, which is the only flow that sends
+        // mail. getAdminContext rejects deactivated and Ex-Core accounts even
+        // when their stored role still says CTO.
+        const ctx = await getAdminContext(request);
+        if (!ctx) return unauthorized();
+        if (!ctx.isCTO) return forbidden('CTO');
 
         const { to, subject, text } = await request.json();
         if (typeof to !== 'string' || typeof subject !== 'string' || typeof text !== 'string' || !to || !subject || !text) {

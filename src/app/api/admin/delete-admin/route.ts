@@ -1,21 +1,16 @@
 import { NextResponse } from 'next/server';
-import { verifyAuthToken } from '@/lib/serverAuth';
+import { getAdminContext, unauthorized, forbidden } from '@/lib/serverAuthz';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 
 export async function DELETE(request: Request) {
     try {
-        // 1. Verify caller
-        const authResult = await verifyAuthToken(request);
-        if (!authResult) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        // 1. Verify the caller is an active CTO (not merely a stale role string).
+        const ctx = await getAdminContext(request);
+        if (!ctx) return unauthorized();
+        if (!ctx.isCTO) return forbidden('CTO');
 
         const adminDb = getAdminFirestore();
-        const callerDoc = await adminDb.collection('admins').doc(authResult.uid).get();
-        if (!callerDoc.exists || callerDoc.data()?.role !== 'CTO') {
-            return NextResponse.json({ error: 'Forbidden: CTO role required' }, { status: 403 });
-        }
 
         // 2. Get target UID
         const url = new URL(request.url);
@@ -25,7 +20,7 @@ export async function DELETE(request: Request) {
         }
 
         // 3. Prevent self-deletion
-        if (targetUid === authResult.uid) {
+        if (targetUid === ctx.uid) {
             return NextResponse.json({ error: 'Cannot revoke your own access' }, { status: 400 });
         }
 
@@ -65,7 +60,7 @@ export async function DELETE(request: Request) {
         try {
             await adminDb.collection('audit_logs').add({
                 action: 'REVOKE_ADMIN',
-                actorUid: authResult.uid,
+                actorUid: ctx.uid,
                 targetUid,
                 email: targetData?.email,
                 timestamp: Timestamp.now(),

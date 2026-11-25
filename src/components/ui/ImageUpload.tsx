@@ -1,7 +1,9 @@
 import Image from "next/image";
 import { useState } from "react";
+import { Images } from "lucide-react";
 import { uploadMedia } from "@/lib/mediaUpload";
 import { useToast } from "@/components/ui/Toast";
+import ImagePicker from "@/components/admin/ImagePicker";
 
 interface ImageUploadProps {
     path: string;
@@ -14,6 +16,7 @@ export default function ImageUpload({ path, onUpload, currentImage }: ImageUploa
     const [preview, setPreview] = useState(currentImage || "");
     const [dragging, setDragging] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [pickerOpen, setPickerOpen] = useState(false);
     const toast = useToast();
 
     const handleFile = async (file: File) => {
@@ -82,6 +85,28 @@ export default function ImageUpload({ path, onUpload, currentImage }: ImageUploa
                     />
                 </label>
             </div>
+            <div className="text-center">
+                <button
+                    type="button"
+                    onClick={() => setPickerOpen(true)}
+                    className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+                >
+                    <Images size={15} aria-hidden="true" />
+                    Choose from Image Stash
+                </button>
+            </div>
+
+            {pickerOpen && (
+                <ImagePicker
+                    selectedUrl={preview}
+                    onClose={() => setPickerOpen(false)}
+                    onSelect={(asset) => {
+                        setPreview(asset.url);
+                        onUpload(asset.url);
+                    }}
+                />
+            )}
+
             {uploading && (
                 <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mt-4">
                     <div

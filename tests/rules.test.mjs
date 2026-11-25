@@ -23,6 +23,9 @@ before(async () => {
     await setDoc(doc(db, 'admins/onb'), { uid: 'onb', role: 'Activator', status: 'onboarding' });
     await setDoc(doc(db, 'admins/pend'), { uid: 'pend', role: 'pending' });
     await setDoc(doc(db, 'admins/lead'), { uid: 'lead', role: 'Events_Lead', status: 'active' });
+    await setDoc(doc(db, 'admins/excore'), { uid: 'excore', role: 'ExCoreMember', status: 'active' });
+    // Legacy hand-off: the exCoreAt marker with a still-normal-looking role.
+    await setDoc(doc(db, 'admins/excore-legacy'), { uid: 'excore-legacy', role: 'Activator', status: 'active', exCoreAt: Timestamp.now() });
     await setDoc(doc(db, 'users/s1'), { uid: 's1', mobile: '9999999999' });
     await setDoc(doc(db, 'users/s2'), { uid: 's2', mobile: '8888888888' });
     await setDoc(doc(db, 'events/e1'), { title: 'E1', registrationStatus: 'open' });
@@ -56,6 +59,38 @@ test('custom roles count as admins, pending does not', async () => {
   await assertFails(updateDoc(doc(fs('pend'), 'events/e1'), { title: 'E1' }));
   await assertFails(uploadBytes(ref(st('pend'), 'gallery/y.png'), png, { contentType: 'image/png' }));
   await assertFails(updateDoc(doc(fs('s1'), 'events/e1'), { title: 'E1' }));
+});
+
+test('Ex-Core accounts have zero admin control but keep their own profile settings', async () => {
+  // Their own account profile stays editable (display name / socials).
+  await assertSucceeds(updateDoc(doc(fs('excore'), 'admins/excore'), { displayName: 'Ex', socials: {} }));
+  await assertSucceeds(getDoc(doc(fs('excore'), 'admins/excore')));
+
+  // No admin reading surface: team list, student data, messages, logs, secrets.
+  await assertFails(getDocs(collection(fs('excore'), 'admins')));
+  await assertFails(getDoc(doc(fs('excore'), 'admins/cto')));
+  await assertFails(getDoc(doc(fs('excore'), 'users/s1')));
+  await assertFails(getDocs(collection(fs('excore'), 'messages')));
+  await assertFails(getDocs(collection(fs('excore'), 'audit_logs')));
+  await assertFails(getDoc(doc(fs('excore'), 'event_secrets/e1')));
+
+  // No admin writing surface: events, gallery, resources, alumni, settings.
+  await assertFails(updateDoc(doc(fs('excore'), 'events/e1'), { title: 'Hijacked' }));
+  await assertFails(setDoc(doc(fs('excore'), 'gallery/g1'), { src: 'x' }));
+  await assertFails(setDoc(doc(fs('excore'), 'resources/r1'), { title: 'x' }));
+  await assertFails(setDoc(doc(fs('excore'), 'alumni/a1'), { name: 'x' }));
+  await assertFails(setDoc(doc(fs('excore'), 'club_roles/Hacked'), { label: 'X', rank: 0, limit: null }));
+
+  // Public Ex-Core profiles stay readable.
+  await assertSucceeds(getDoc(doc(fs('excore'), 'ex_core_members/m1')));
+});
+
+test('legacy Ex-Core hand-offs (exCoreAt) also have zero admin control', async () => {
+  await assertSucceeds(getDoc(doc(fs('excore-legacy'), 'admins/excore-legacy')));
+  await assertFails(getDocs(collection(fs('excore-legacy'), 'admins')));
+  await assertFails(getDoc(doc(fs('excore-legacy'), 'users/s1')));
+  await assertFails(updateDoc(doc(fs('excore-legacy'), 'events/e1'), { title: 'Hijacked' }));
+  await assertFails(getDoc(doc(fs('excore-legacy'), 'event_secrets/e1')));
 });
 
 test('club roles: public read, CTO write', async () => {
@@ -168,6 +203,23 @@ test('ex-core profiles: public read, CTO-only client writes, others blocked', as
   await assertSucceeds(setDoc(doc(fs('cto'), 'ex_core_members/m2'), { name: 'CTO made me', memberType: 'activator', roleHistory: [{ startYear: 2027, endYear: 2028, role: 'CTO' }], displayOrder: 0 }));
   await assertSucceeds(updateDoc(doc(fs('cto'), 'ex_core_members/m1'), { name: 'Old' }));
   await assertSucceeds(deleteDoc(doc(fs('cto'), 'ex_core_members/m2')));
+});
+
+test('image stash index: admins read, clients never write', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'image_assets/a1'), { filename: 'photo.jpg', url: '/api/images/a1' });
+  });
+  // Admins can browse the stash; students, pending and Ex-Core cannot.
+  await assertSucceeds(getDoc(doc(fs('act'), 'image_assets/a1')));
+  await assertSucceeds(getDocs(collection(fs('cto'), 'image_assets')));
+  await assertFails(getDoc(doc(fs('s1'), 'image_assets/a1')));
+  await assertFails(getDocs(collection(fs('pend'), 'image_assets')));
+  await assertFails(getDocs(collection(fs('excore'), 'image_assets')));
+  await assertFails(getDoc(doc(fs(null), 'image_assets/a1')));
+  // Every write goes through /api/admin/images (Admin SDK).
+  await assertFails(setDoc(doc(fs('act'), 'image_assets/a2'), { filename: 'x', url: 'y' }));
+  await assertFails(updateDoc(doc(fs('act'), 'image_assets/a1'), { filename: 'hacked' }));
+  await assertFails(deleteDoc(doc(fs('cto'), 'image_assets/a1')));
 });
 
 test('forms: published public read, draft admin-only, no client writes', async () => {

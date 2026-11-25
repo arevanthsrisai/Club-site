@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { AdminProfile, subscribeToAllAdmins, subscribeToRoles } from "@/lib/api";
-import { ClubRole, roleLabel, withBuiltIns, sortMembersByRole } from "@/lib/roles";
+import { ClubRole, roleLabel, withBuiltIns, sortMembersByRole, EX_CORE_ROLE } from "@/lib/roles";
 import { Users, ChevronRight } from "lucide-react";
 import Image from "next/image";
 import PageHeader from "@/components/ui/PageHeader";
@@ -29,9 +29,15 @@ export default function TeamPage() {
 
     // Canonical ordering shared with /about: role precedence, then stable
     // member order inside each role. Accounts the CTO moved into Ex-Core
-    // (exCoreAt set) are excluded, mirroring the public About page.
+    // (exCoreAt set) and accounts that signed up as Ex-Core are excluded,
+    // mirroring the public About page.
     const members = sortMembersByRole(
-        admins.filter(u => u.status === "active" && u.role !== "pending" && u.role !== "admin" && !u.exCoreAt),
+        admins.filter(u =>
+            u.status === "active"
+            && u.role !== "pending"
+            && u.role !== "admin"
+            && u.role !== EX_CORE_ROLE.id
+            && !u.exCoreAt),
         roles,
     );
 

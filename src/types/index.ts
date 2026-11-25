@@ -203,10 +203,39 @@ export interface MessageReminder {
     timestamp: any;
 }
 
+/** An indexed image in the admin Image Stash (Backblaze B2-backed). */
+export interface StoredImage {
+    id: string;
+    /** Stable friendly URL: /api/images/{id}. Store THIS on profiles. */
+    url: string;
+    /** B2 object key under the image-stash/ namespace (null for imported external images). */
+    key?: string | null;
+    filename: string;
+    contentType?: string;
+    size?: number;
+    /** SHA-256 of the original upload; used to avoid duplicate assets. */
+    checksum?: string;
+    /** "upload" when added to the stash directly; "imported" when indexed from older content. */
+    source?: "upload" | "imported";
+    /** Where the bytes live. External imports are indexed but not stored in B2. */
+    provider?: "b2" | "external";
+    /** Original URL for imported images whose bytes are not in B2. */
+    externalUrl?: string | null;
+    /** Original profile URL an imported asset was indexed from. */
+    sourceUrl?: string;
+    uploadedBy?: string;
+    uploadedByName?: string;
+    revision?: number;
+    createdAt: any;
+    updatedAt?: any;
+}
+
 export interface Alumni {
     id: string;
     name: string;
-    batchYear: string;         // e.g. "2020-2024"
+    /** Joining year. The batch is derived from it: 2025 → "2025-2029". */
+    joiningYear?: number;
+    batchYear: string;         // derived display label, e.g. "2025-2029" (legacy records only have this)
     roleHeld: string;          // Role they held in ReLU, e.g. "President"
     currentPosition?: string;  // e.g. "Software Engineer"
     company?: string;          // e.g. "Google"

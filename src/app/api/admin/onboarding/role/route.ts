@@ -95,9 +95,32 @@ export async function POST(request: NextRequest) {
         }
         await adminRef.set(update, { merge: true });
 
+        // An account that finishes signup as Ex-Core is no longer an admin
+        // request. Leaving the request behind would let the CTO approve it
+        // later — silently promoting the Ex-Core member to Activator — or
+        // reject it, which deletes the account and its Auth user entirely.
+        // Clear it as part of signup; approve/reject also re-check the role in
+        // case an older request survived.
+        let pendingRequestRemoved = false;
+        if (clubRole === EX_CORE_ROLE.id) {
+            try {
+                const pendingRef = db.collection("pending_registrations").doc(ctx.uid);
+                const pendingSnap = await pendingRef.get();
+                if (pendingSnap.exists) {
+                    await pendingRef.delete();
+                    pendingRequestRemoved = true;
+                }
+            } catch (err) {
+                // Cleanup must never fail onboarding. Approve/reject refuse
+                // non-pending accounts, so a surviving request is harmless.
+                console.error("[onboarding/role] Failed to clear the pending signup request:", err);
+            }
+        }
+
         await logServerActivity(ctx.uid, ctx.name, "ONBOARDING_ROLE_SET", {
             previousRole: ctx.role,
             newRole: clubRole,
+            pendingRequestRemoved,
         });
 
         return NextResponse.json({ success: true });

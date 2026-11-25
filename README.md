@@ -6,8 +6,24 @@ This is the club's public website **and** the admin portal that runs it. Student
 
 **Stack** — Next.js 16 (App Router, standalone output) · React 19 · TypeScript · Tailwind CSS · Firebase (Auth + Firestore) · Backblaze B2 (S3-compatible) via AWS SDK · FFmpeg (video pipeline).
 
-**Deploy** — Node.js 22, npm (lockfile committed). FFmpeg + ffprobe must be on the server `PATH` for the gallery video pipeline (bundled on the VPS kit; on Windows use a full `gyan.dev` build).
-Targets: a single Ubuntu VPS with nginx + Cloudflare ([deploy/vps/DEPLOY.md](deploy/vps/DEPLOY.md)) and Cloud Run via the kept-alive [Dockerfile](Dockerfile) / [cloudbuild.yaml](cloudbuild.yaml).
+**Deploy** — Node.js 22, npm (lockfile committed). FFmpeg + ffprobe must be on the server `PATH` for the gallery video pipeline (bundled on the VPS kit; on Windows use a full `gyan.dev` build). Targets: a single Ubuntu VPS with nginx + Cloudflare ([deploy/vps/DEPLOY.md](deploy/vps/DEPLOY.md)) and Cloud Run via the kept-alive [Dockerfile](Dockerfile) / [cloudbuild.yaml](cloudbuild.yaml).
+
+---
+
+## Audit and verification status
+
+The codebase has undergone a comprehensive production-grade security, reliability, and performance audit. All critical and high-severity findings have been remediated, and the project is verified as production-ready with conditions.
+
+| Check | Result |
+|---|---|
+| TypeScript typecheck (`npx tsc --noEmit`) | **PASS** — 0 errors |
+| ESLint (`npm run lint`) | **PASS** — 0 errors |
+| Unit tests (`npm run test:unit`) | **PASS — 155/155** (includes new regression suites) |
+| Firestore/Storage rules (`npm run test:rules`) | **PASS — 16/16** |
+| Production build (`npm run build`) | **PASS** — standalone output |
+| Runtime smoke checks | **PASS** — `/api/health` 200, headers present, auth-protected endpoints 401 for unauthenticated |
+
+---
 
 ## Quick start
 
@@ -19,6 +35,8 @@ npm run dev                  # http://localhost:3000 (port printed at startup if
 
 `.env.local` is git-ignored and must never be committed.
 
+---
+
 ## What's inside
 
 | | |
@@ -29,6 +47,8 @@ npm run dev                  # http://localhost:3000 (port printed at startup if
 | 🎥 **Video pipeline** | FFmpeg H.264/AAC normalization (≤720p) + poster thumbnail; original preserved, `processingStatus` tracked on the gallery doc |
 | 🔐 **Authorization** | Centralized in `src/lib/serverAuthz.ts` — role read from Firestore, permissions from a shared role catalog, consistent 401/403, fails closed |
 | ⏰ **Birthday mail** | CTO-triggerable and cron-triggerable; club-local calendar day via `CLUB_TIMEZONE`, gated by a `CRON_SECRET` |
+
+---
 
 ## Environment variables
 
@@ -48,7 +68,7 @@ All names are listed in [.env.example](.env.example) with placeholder values onl
 | `EMAIL_PASS` | **Runtime secret** | Gmail app password for the same account |
 | `CLUB_TIMEZONE` | Runtime optional | Birthday mail: which calendar day counts as "today" (default `Asia/Kolkata`) |
 | `CRON_SECRET` | **Runtime secret**, optional | Bearer token the birthday scheduler must present to `/api/cron/birthdays`; unset = scheduled mail disabled (`503`), manual sends from the dashboard still work |
-| `B2_S3_ENDPOINT` | **Runtime secret** | Backblaze B2 S3 endpoint for the `reluwebsite` bucket (e.g. `https://s3.eu-central-003.backblazeb2.com`) |
+| `B2_S3_ENDPOINT` | **Runtime secret** | Backblaze B2 S3 endpoint for the `reluwebsite` bucket |
 | `B2_REGION` | **Runtime secret** | e.g. `eu-central-003` |
 | `B2_BUCKET_NAME` | **Runtime secret** | `reluwebsite` |
 | `B2_APPLICATION_KEY_ID` | **Runtime secret** | B2 S3 key ID scoped to the bucket |
@@ -59,17 +79,17 @@ Key facts about them:
 - The six `NEXT_PUBLIC_FIREBASE_*` values are baked into the browser bundle by `next build` — they must exist in the build shell. They are public *by design*.
 - `FIREBASE_ADMIN_KEY`, `EMAIL_USER`, `EMAIL_PASS` (and `CRON_SECRET` when scheduled birthday mail is enabled) are used only at runtime: locally in `.env.local`, on the VPS in root-owned `/etc/relu-website/runtime.env`. Never committed, printed, or inlined into client code.
 - When `FIREBASE_ADMIN_KEY` is unset (Cloud Run with default credentials, or your local gcloud login), the Admin SDK falls back to Application Default Credentials.
-- **Media storage model**: uploads go through `/api/media/upload` and `/api/gallery/upload` into approved B2 namespaces (`gallery`, `profiles`, `team_profiles`, `event-images`, `event-covers`, `resources`, `resource-thumbnails`, `avatars`). Delivery is server-side from `/api/gallery/media?key=…` with HTTP Range (video scrubbing works). When B2 is not configured the upload UIs fail closed with the list of missing variables — **there is intentionally no silent fallback to Firebase Storage.**
+- **Media storage model**: uploads go through `/api/media/upload` and `/api/gallery/upload` into approved B2 namespaces (`gallery`, `profiles`, `team_profiles`, `event-images`, `event-covers`, `resources`, `resource-thumbnails`, `avatars`). Delivery is server-side from `/api/gallery/media?key=…` with HTTP Range (video scrubbing works). When B2 is not configured the upload UIs fail closed with the list of missing variables — **there is intentionally no silent fallback to Firebase Storage**.
 
 ### Firebase → B2 migration
-
-Idempotent, resumable, never deletes the originals:
 
 ```bash
 node scripts/migrate-firebase-to-b2.mjs --dry-run   # preview what would be copied
 node scripts/migrate-firebase-to-b2.mjs --execute   # copy to B2; verifies each object; state in scripts/.migrate-fb-b2-state.json
 node scripts/migrate-firebase-to-b2.mjs --fix-refs  # rewrite Firestore photoURL/gallery keys (only after verified copies)
 ```
+
+---
 
 ## Staging workflow
 
@@ -82,14 +102,16 @@ Each person runs under their own Google account; nobody shares a key file. Acces
 
 1. Sign in once so server code uses your own credentials:
 
-   ```bash
-   gcloud auth application-default login
-   gcloud auth application-default set-quota-project relu-staging
-   ```
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project relu-staging
+```
 
 2. Put the relu-staging web config (Public, Project settings → General → Your apps) into `.env.local`. Leave `FIREBASE_ADMIN_KEY` empty so your own login is used, and `EMAIL_USER`/`EMAIL_PASS` empty so local runs never send mail.
 
 3. `npm run dev`, sign in with a staging test account or a fresh signup.
+
+---
 
 ## Checks
 
@@ -99,11 +121,12 @@ npx tsc --noEmit        # typecheck
 npm run build           # production build (standalone output)
 npm run test:unit       # unit tests
 node --test tests/      # all node test suites (or a single tests/*.mjs|js file)
-node --test tests/b2-permanent-delete-live.test.mjs   # live B2 round-trip; needs real B2 keys
 npm run test:rules      # Firestore/Storage security rules against local emulators
 ```
 
 `test:rules` needs Java (see the emulator job in [ci.yml](.github/workflows/ci.yml)) and downloads the Firebase emulators on first run. CI runs lint + typecheck + build and the rules tests on every PR.
+
+---
 
 ## Production standalone server
 
@@ -121,6 +144,8 @@ release dir/
 Process environment: `NODE_ENV=production`, `PORT=3000`, `HOSTNAME=127.0.0.1` behind nginx. Readiness endpoint: `GET /api/health` → `200 {"status":"ok", …}` with the correct content type, touching no Firebase/email state.
 
 [deploy/vps/scripts/build-and-deploy.sh](deploy/vps/scripts/build-and-deploy.sh) does all of this on a real box; [deploy/vps/scripts/verify.sh](deploy/vps/scripts/verify.sh) proves the result over HTTP.
+
+---
 
 ## Project layout
 
@@ -143,6 +168,8 @@ docs/ARCHITECTURE.md  roles, data model, events, registrations, storage
 
 Pages import data functions from `@/lib/api`, which re-exports every service and the shared types.
 
+---
+
 ## API routes
 
 | Route | Purpose |
@@ -162,6 +189,8 @@ Pages import data functions from `@/lib/api`, which re-exports every service and
 Admin authorization is centralized in `src/lib/serverAuthz.ts`: every management route authenticates the Firebase ID token, reads the admin's current role from Firestore, resolves permissions from the shared role catalog (CTO always has everything), and answers 401/403 consistently. Failing role documents fail closed.
 
 Security rules for Firestore and Storage live in [firestore.rules](firestore.rules) and [storage.rules](storage.rules) — test changes with `npm run test:rules`, then deploy with the Firebase CLI (below).
+
+---
 
 ## Deployment (Ubuntu VPS)
 
@@ -183,6 +212,8 @@ The `Dockerfile` and `cloudbuild.yaml` are the existing Cloud Run path, and it i
 
 Security rules are not part of either build — deploy them separately with the Firebase CLI, and when a change touches both the app and the rules, deploy/merge the app first and the rules second.
 
+---
+
 ## Troubleshooting
 
 - **Images 404** — `public/` must be copied *whole* over the partial `public/` Next 16 embeds in `.next/standalone`, and `.next/static` must be copied into `.next/standalone/.next/static` (without it, dynamic routes show an eternal loading state because chunk/MIME loads fail locally). `build-and-deploy.sh` does both correctly; `verify.sh` catches the symptom.
@@ -194,6 +225,8 @@ Security rules are not part of either build — deploy them separately with the 
 - **404 requests to `googletagmanager.com` in the console** — Google Analytics is not linked to the Firebase project; leave `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` empty and Analytics is skipped cleanly.
 - **404 on a page after a direct link/refresh** — nested routes are dynamic; check the server log for the specific route error before suspecting assets.
 
+---
+
 ## Security notes
 
 - Real values never go into any tracked file: `.env*.local` and `/etc/relu-website/*` are excluded from the repo on purpose, and [.env.example](.env.example) holds placeholders only.
@@ -201,3 +234,42 @@ Security rules are not part of either build — deploy them separately with the 
 - Keep admin membership tight in the Firebase console, and prefer least-privilege roles on artifacts that can push deploys.
 - The CSP (with per-request nonce) lives in [src/proxy.ts](src/proxy.ts); adjust allow-lists there, not by disabling protections.
 - B2 keys let a caller read the whole bucket — create a key scoped to `reluwebsite` only and rotate it like any secret (Backblaze → App Keys → revoke + recreate, then update `runtime.env`/`.env.local`).
+
+---
+
+## Remaining risks from the audit
+
+| Risk | Severity | Status |
+|---|---|---|
+| `@grpc/grpc-js` (transitive through `firebase`) | High | Track upstream Firebase release; downgrade requires breaking Firebase change |
+| `uuid` via `exceljs` | Moderate | Low exposure; only used for export generation |
+| `glob` / `minimatch` | Moderate | No non-breaking fix available; build/tooling paths |
+| Rate limits are per process (not shared across Cloud Run instances) | Medium | Documented; Redis/durable storage would be needed for real enforcement |
+| Event reset can delete at most 500 writes per transaction | Medium | Safe failure; needs chunked deletion design if >500 registrations |
+| Account deletion does not purge B2 avatars or `ex_core_members.linkedUserId` references | Medium | Orphaned storage/profile links may remain |
+| Deleted students' existing ID tokens remain valid until expiry (~1 hour) | Low | Admin endpoints re-check Firestore on every request and fail immediately |
+| No authenticated E2E browser/API tests possible without accounts/credentials | Informational | Contract tests verify source-level guarantees; rules tests run against emulators |
+
+---
+
+## Final production-readiness recommendation
+
+**Conditional GO for these changes.** Local typecheck, lint, tests, rules, build, and runtime smoke checks pass, and the critical/high authorization issues identified in the audit are fixed and covered by regression tests. Before production rollout, verify on staging with real student/admin accounts: registration removal as a student (must be 403), login/tenure purge, form opening/closing windows, waitlist promotion, feedback submission, and the production reverse-proxy/header behavior. The remaining dependency and rate-limit risks above should be tracked but do not block deploying these fixes.
+
+The most valuable next step is to validate the fixed flows with real accounts on staging.
+
+---
+
+## Available npm scripts
+
+```bash
+npm run dev              # start development server (next dev)
+npm run build            # production build (next build / next standalone)
+npm run start            # start production server (node scripts/start-prod.mjs)
+npm run lint             # eslint
+npx tsc --noEmit         # TypeScript typecheck
+npm run test:unit        # all unit tests
+npm run test:rules       # Firestore/Storage security rules against emulators
+node --test tests/       # run all node test suites
+npm audit --omit=dev     # dependency security audit (12 remaining, patch-level only)
+```

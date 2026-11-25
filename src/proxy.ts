@@ -16,6 +16,10 @@ export function proxy(request: NextRequest) {
         "img-src 'self' data: blob: https://relu-website-service-735268143198.us-central1.run.app https://firebasestorage.googleapis.com https://lh3.googleusercontent.com https://images.unsplash.com https://www.google-analytics.com https://www.googletagmanager.com",
         "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebase.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
         `frame-src https://${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}`,
+        // Our pages may never be framed (clickjacking) and forms may only post
+        // back to this origin.
+        "frame-ancestors 'none'",
+        "form-action 'self'",
         "object-src 'none'",
         "base-uri 'self'",
     ].join("; ");
@@ -25,6 +29,9 @@ export function proxy(request: NextRequest) {
     requestHeaders.set("Content-Security-Policy", csp);
 
     const response = NextResponse.next({ request: { headers: requestHeaders } });
+    // The remaining hardening headers (HSTS, nosniff, referrer, permissions,
+    // frame options) are set once in next.config.mjs for every route; adding
+    // them here too would emit conflicting duplicates.
     response.headers.set("Content-Security-Policy", csp);
     return response;
 }

@@ -3,10 +3,14 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Same check as firestore.rules: any approved admin. Reads admins/{uid} from Firestore (cross-service rules).
+    // Same check as firestore.rules: any approved admin, never an Ex-Core
+    // hand-off account (fixed role or legacy exCoreAt marker). Reads
+    // admins/{uid} from Firestore (cross-service rules).
     function isAdmin() {
       return request.auth != null
-        && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.role != 'pending';
+        && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.role != 'pending'
+        && firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.role != 'ExCoreMember'
+        && !('exCoreAt' in firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data);
     }
 
     function isImage() {

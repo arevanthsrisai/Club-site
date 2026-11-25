@@ -7,6 +7,7 @@ export * from "@/services/audit";
 export * from "@/services/events";
 export * from "@/services/excore";
 export * from "@/services/gallery";
+export * from "@/services/imageAssets";
 export * from "@/services/invitations";
 export * from "@/services/messages";
 export * from "@/services/registrations";

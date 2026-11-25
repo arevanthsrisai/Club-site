@@ -8,7 +8,9 @@ import { uploadMedia } from "@/lib/mediaUpload";
 import { getAuthHeaders } from "@/lib/authHeaders";
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { LogOut, Save, Camera, User, Clock, ShieldCheck, Lock, Github, Linkedin, Instagram, Calendar, FileText, UserCircle } from "lucide-react";
+import { LogOut, Save, Camera, User, Clock, ShieldCheck, Lock, Github, Linkedin, Instagram, Calendar, FileText, UserCircle, History, ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { EX_CORE_ROLE } from "@/lib/roles";
 import PageHeader from "@/components/ui/PageHeader";
 import { auth } from "@/lib/firebase"; // Direct auth import needed for re-auth if not fully exposed in lib/auth
 import Image from "next/image";
@@ -160,15 +162,23 @@ export default function AdminProfilePage() {
                 }
             });
 
-            await logActivity(user.uid, name, "Updated their profile");
+            // Audit is best-effort: Ex-Core accounts deliberately cannot write
+            // the admin audit trail from the client, and that must never fail
+            // their profile save.
+            await logActivity(user.uid, name, "Updated their profile")
+                .catch(err => console.warn("Profile audit log skipped:", err));
 
-            // If the user is in Ex-Core, sync their profile to ex_core_members
-            if (profile?.exCoreAt) {
+            // If the user is in Ex-Core, sync their profile to ex_core_members.
+            // The fixed ExCoreMember role counts too: self-service profiles
+            // created from the Ex-Core settings page may not carry exCoreAt.
+            if (profile?.exCoreAt || profile?.role === EX_CORE_ROLE.id) {
                 try {
                     const res = await fetch("/api/ex-core/self", {
                         method: "PATCH",
                         headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-                        body: JSON.stringify({ name, photoURL: newPhotoURL || photo, bio: "", socials: { linkedin, github, instagram} }),
+                        // Only the fields this page owns: the Ex-Core bio and
+                        // category/role history are edited on the Ex-Core settings page.
+                        body: JSON.stringify({ name, photoURL: newPhotoURL || photo, socials: { linkedin, github, instagram} }),
                     });
                     if (!res.ok) { console.warn("Failed to sync Ex-Core profile update:", await res.text()); }
                 } catch (e) {
@@ -207,7 +217,8 @@ export default function AdminProfilePage() {
             await reauthenticateWithCredential(user, credential);
             await updatePassword(user, newPass);
 
-            await logActivity(user.uid, profile?.displayName || user.email!, "Changed their password");
+            await logActivity(user.uid, profile?.displayName || user.email!, "Changed their password")
+                .catch(err => console.warn("Password audit log skipped:", err));
 
             setPassMessage("Password changed successfully!");
             setCurrentPass("");
@@ -272,12 +283,32 @@ export default function AdminProfilePage() {
                         <h2 className="text-xl font-bold">{name || "Admin User"}</h2>
                         <p className="text-blue-400 text-sm mb-4">{user?.email}</p>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${profile?.role === 'CTO' ? 'bg-purple-500/20 text-purple-300' : 'bg-blue-500/20 text-blue-300'}`}>
-                            {profile?.role?.toUpperCase().replace("_", " ")}
+                            {profile?.role === EX_CORE_ROLE.id
+                                ? "Ex-Core Member"
+                                : profile?.role?.toUpperCase().replace("_", " ")}
                         </span>
                     </div>
 
+                    {/* Ex-Core members manage their public entry on their own page. */}
+                    {(profile?.exCoreAt || profile?.role === EX_CORE_ROLE.id) && (
+                        <Link
+                            href="/admin/ex-core/settings"
+                            className="block bg-white/5 border border-blue-500/25 rounded-xl p-5 hover:border-blue-400/50 transition-colors group"
+                        >
+                            <h3 className="font-bold flex items-center gap-2 text-blue-300">
+                                <History size={18} /> Ex-Core Settings
+                            </h3>
+                            <p className="text-xs text-gray-400 mt-1.5">
+                                Control your member category, role history and the public Ex-Core entry.
+                            </p>
+                            <span className="mt-3 inline-flex items-center gap-1 text-xs text-blue-400 group-hover:text-blue-300">
+                                Open settings <ArrowRight size={12} />
+                            </span>
+                        </Link>
+                    )}
+
                     {/* Tenure Card */}
-                    {profile?.role !== 'pending' && profile?.role !== 'CTO' && ( // Hide for CTO as they are permanent
+                    {profile?.role !== 'pending' && profile?.role !== 'CTO' && profile?.role !== EX_CORE_ROLE.id && ( // Hide for CTO and Ex-Core: both are permanent
                         <div className="bg-white/5 border border-white/10 rounded-xl p-6">
                             <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                                 <Clock size={20} className="text-yellow-500" /> Tenure Status

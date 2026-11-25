@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAuthToken } from "@/lib/serverAuth";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { computeAvailability, AVAILABILITY_MESSAGE, persistableAnswers, validateSubmission } from "@/lib/forms";
+import { computeAvailability, AVAILABILITY_MESSAGE, persistableAnswers, toDateOrNull, validateSubmission } from "@/lib/forms";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 /**
@@ -66,12 +66,16 @@ export async function POST(request: NextRequest) {
             fields?: unknown;
         };
 
-        // Availability is enforced HERE, not just in the UI.
+        // Availability is enforced HERE, not just in the UI. Stored values are
+        // Firestore Timestamps: they must go through toDateOrNull(), because
+        // `new Date(timestamp)` is Invalid Date and silently disables the window.
+        const opensAt = toDateOrNull(fd.opensAt);
+        const closesAt = toDateOrNull(fd.closesAt);
         const availability = computeAvailability(
             {
                 status: (fd.status ?? "draft") as "draft" | "published" | "closed",
-                opensAt: fd.opensAt ? new Date(fd.opensAt as unknown as number).toISOString() : null,
-                closesAt: fd.closesAt ? new Date(fd.closesAt as unknown as number).toISOString() : null,
+                opensAt: opensAt ? opensAt.toISOString() : null,
+                closesAt: closesAt ? closesAt.toISOString() : null,
             }
         );
         if (availability !== "open") {
@@ -112,8 +116,7 @@ export async function POST(request: NextRequest) {
             if (!userEmail && ud?.email) userEmail = ud.email;
         }
 
-        const batch = db.batch();
-        batch.set(submissionRef, {
+        const submission = {
             formId,
             eventId,
             answers,
@@ -121,11 +124,31 @@ export async function POST(request: NextRequest) {
             userEmail,
             userId: uid,
             submittedAt: Timestamp.now(),
-        });
+        };
+        const batch = db.batch();
+        if (uid) {
+            // create() makes the duplicate check atomic with the counter bump:
+            // two concurrent submissions cannot both increment submissionCount.
+            batch.create(submissionRef, submission);
+        } else {
+            batch.set(submissionRef, submission);
+        }
         batch.update(db.collection("forms").doc(formId), {
             submissionCount: FieldValue.increment(1),
         });
-        await batch.commit();
+
+        try {
+            await batch.commit();
+        } catch (error: unknown) {
+            const code = (error as { code?: unknown })?.code;
+            if (code === 6 || code === "already-exists" || code === "ALREADY_EXISTS") {
+                return NextResponse.json(
+                    { error: "You have already submitted this form.", code: "ALREADY_SUBMITTED" },
+                    { status: 409 }
+                );
+            }
+            throw error;
+        }
 
         return NextResponse.json({ ok: true, submissionId });
     } catch (error) {

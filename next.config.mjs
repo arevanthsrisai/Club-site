@@ -37,6 +37,10 @@ const nextConfig = {
             {
                 pathname: '/api/gallery/media',
             },
+            // Stable Image Stash delivery URL (/api/images/{assetId}).
+            {
+                pathname: '/api/images/**',
+            },
             {
                 pathname: '/images/**',
             },
@@ -64,7 +68,7 @@ const nextConfig = {
                     },
                     {
                         key: 'X-Frame-Options',
-                        value: 'SAMEORIGIN'
+                        value: 'DENY'
                     },
                     {
                         key: 'X-Content-Type-Options',

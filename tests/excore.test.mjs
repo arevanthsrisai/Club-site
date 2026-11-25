@@ -177,15 +177,21 @@ test('globalDisplayOrder yields one cross-year sequence with stable ties', () =>
     assert.deepStrictEqual(globalDisplayOrder(members), ['b', 'a', 'c']); // rank, then insertion order
 });
 
-test('owner self-edit field whitelist behaves as designed', () => {
-    assert.deepStrictEqual([...OWNER_EDITABLE_FIELDS], ['name', 'photoURL', 'bio', 'socials']);
+test('owner self-edit whitelist includes the member\'s own category and role history', () => {
+    assert.deepStrictEqual(
+        [...OWNER_EDITABLE_FIELDS],
+        ['name', 'photoURL', 'bio', 'socials', 'memberType', 'roleHistory'],
+    );
     assert.strictEqual(hasOnlyOwnerFields({ name: 'x' }), true);
     assert.strictEqual(hasOnlyOwnerFields({ name: 'x', bio: 'y' }), true);
+    assert.strictEqual(hasOnlyOwnerFields({ memberType: 'core' }), true);
+    assert.strictEqual(hasOnlyOwnerFields({ roleHistory: [] }), true);
     assert.strictEqual(hasOnlyOwnerFields({}), false);
     assert.strictEqual(hasOnlyOwnerFields({ exCoreBatch: 2027 }), false);
-    assert.strictEqual(hasOnlyOwnerFields({ roleHistory: [] }), false);
-    assert.strictEqual(containsPrivilegedField({ roleHistory: [] }), true);
+    assert.strictEqual(containsPrivilegedField({ roleHistory: [] }), false);
+    assert.strictEqual(containsPrivilegedField({ memberType: 'activator' }), false);
     assert.strictEqual(containsPrivilegedField({ displayOrder: 1 }), true);
+    assert.strictEqual(containsPrivilegedField({ linkedUserId: 'uid' }), true);
     assert.strictEqual(containsPrivilegedField({ exCoreBatch: 2027 }), true);
     assert.strictEqual(containsPrivilegedField({ bio: 'safe' }), false);
 });

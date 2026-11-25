@@ -35,12 +35,19 @@ export default function AdminSignupPage() {
         const normalizedEmail = email.trim().toLowerCase();
 
         try {
-            // 1. Create Auth User
+            // 1. Create Auth User + the pending admins/{uid} profile (signUp does both)
             const user = await signUp(normalizedEmail, password);
             if (user) {
-                // 2. Create Pending Record (The "Dummy Table")
+                // 2. Create the separate pending-request record. The CTO list
+                // reads both this and the pending admin profile, so a failure
+                // here must not tell the user their (already-created) account
+                // failed — the request stays visible through the profile.
                 const { createPendingRegistration } = await import("@/lib/api");
-                await createPendingRegistration(user.uid, normalizedEmail);
+                try {
+                    await createPendingRegistration(user.uid, normalizedEmail);
+                } catch (registrationError) {
+                    console.warn("Pending registration record was not created:", registrationError);
+                }
 
                 // 3. Sign Out immediately (they are not approved yet)
                 const { signOut } = await import("@/lib/auth");

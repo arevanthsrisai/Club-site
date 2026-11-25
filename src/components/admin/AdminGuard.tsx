@@ -3,12 +3,23 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth, signOut } from "@/lib/auth";
+import { EX_CORE_ROLE } from "@/lib/roles";
 import { ShieldAlert, LogOut } from "lucide-react";
+
+/** Ex-Core accounts may only reach their own profile and Ex-Core settings. */
+const EX_CORE_HOME = "/admin/ex-core/settings";
+function isExCoreAllowedPath(pathname: string): boolean {
+    return pathname === "/admin/profile"
+        || pathname === EX_CORE_HOME
+        || pathname.startsWith(EX_CORE_HOME + "/");
+}
 
 export default function AdminGuard({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
     const { user, profile, loading } = useAuth();
+    // Fixed Ex-Core role OR the legacy hand-off marker: zero admin authority.
+    const isExCore = profile?.role === EX_CORE_ROLE.id || Boolean(profile?.exCoreAt);
 
     useEffect(() => {
         if (!loading && !user && pathname !== "/admin/login" && pathname !== "/admin/signup") {
@@ -61,13 +72,19 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
         if (onboardingAdminOffPage) {
             router.push("/admin/onboarding");
         } else if (activeAdminOnOnboarding) {
-            router.push("/admin");
+            router.push(isExCore ? EX_CORE_HOME : "/admin");
         } else if (isAuthPage && user) {
-            router.push("/admin");
+            router.push(isExCore ? EX_CORE_HOME : "/admin");
+        } else if (isExCore && profile?.status !== "onboarding" && !isExCoreAllowedPath(pathname)) {
+            // Ex-Core accounts hold no admin control: any other admin page
+            // sends them to their own Ex-Core settings instead. The onboarding
+            // page stays reachable until they finish signing up.
+            router.replace(EX_CORE_HOME);
         }
-    }, [onboardingAdminOffPage, activeAdminOnOnboarding, isAuthPage, user, router, pathname]);
+    }, [onboardingAdminOffPage, activeAdminOnOnboarding, isAuthPage, user, isExCore, profile?.status, router, pathname]);
 
     if (onboardingAdminOffPage || activeAdminOnOnboarding) return null;
+    if (isExCore && profile?.status !== "onboarding" && !isExCoreAllowedPath(pathname)) return null;
 
     if (isAuthPage) {
         if (user) return null;

@@ -25,6 +25,11 @@ export interface ServerAuthContext {
     role: string;
     isCTO: boolean;
     isAdmin: boolean;
+    /**
+     * Ex-Core hand-off account: no admin authority at all. The only server
+     * routes it may use are its own profile self-service endpoints.
+     */
+    isExCore: boolean;
     permissions: string[];
 }
 
@@ -37,29 +42,32 @@ export async function getAdminContext(request: Request): Promise<ServerAuthConte
         const adminDoc = await db.collection("admins").doc(authResult.uid).get();
         if (!adminDoc.exists) return null; // no admin profile → not an admin
 
-        const data = adminDoc.data() as { role?: string; status?: string; email?: string; displayName?: string } | undefined;
+        const data = adminDoc.data() as {
+            role?: string; status?: string; email?: string; displayName?: string; exCoreAt?: unknown;
+        } | undefined;
         const role = data?.role ?? "";
         const name = data?.displayName || "Admin";
+        // An account is Ex-Core when it carries the fixed Ex-Core role OR the
+        // hand-off marker. Legacy hand-offs without the role must not keep
+        // admin authority, so both signals count.
+        const isExCore = role === EX_CORE_ROLE.id || Boolean(data?.exCoreAt);
 
         if (!role || role === "pending") {
-            return { uid: authResult.uid, email: data?.email, name, role, isCTO: false, isAdmin: false, permissions: [] };
+            return { uid: authResult.uid, email: data?.email, name, role, isCTO: false, isAdmin: false, isExCore: false, permissions: [] };
         }
 
         const isCTO = role === CTO_ROLE.id;
         // Onboarding admins have not finished profile setup; they may use the
         // app UI once active. Management APIs require active status (or CTO).
-        const isAdmin = isCTO || data?.status === "active";
+        // Ex-Core accounts are never admins, whatever their status says.
+        const isAdmin = !isExCore && (isCTO || data?.status === "active");
         if (!isAdmin) {
-            return { uid: authResult.uid, email: data?.email, name, role, isCTO, isAdmin: false, permissions: [] };
+            return { uid: authResult.uid, email: data?.email, name, role, isCTO, isAdmin: false, isExCore, permissions: [] };
         }
 
         let permissions: string[] = [];
         if (isCTO) {
             permissions = [...ALL_PERMISSION_IDS];
-        } else if (role === EX_CORE_ROLE.id) {
-            // Ex-Core accounts hold no permissions, period. Fixed in code —
-            // a stale or missing Firestore copy can never widen them.
-            permissions = [];
         } else {
             try {
                 const roleDoc = await db.collection("club_roles").doc(role).get();
@@ -87,7 +95,7 @@ export async function getAdminContext(request: Request): Promise<ServerAuthConte
             }
         }
 
-        return { uid: authResult.uid, email: data?.email, name, role, isCTO, isAdmin, permissions };
+        return { uid: authResult.uid, email: data?.email, name, role, isCTO, isAdmin, isExCore, permissions };
     } catch (err) {
         console.error("[serverAuthz] Authorization context resolution failed:", err);
         return null;

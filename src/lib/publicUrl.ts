@@ -20,9 +20,12 @@ export function safePhotoUrl(raw: string | undefined | null): string | null {
     if (!raw) return null;
     const value = String(raw).trim();
     if (!value) return null;
+    // A protocol-relative value (`//evil.example`) starts with "/" but is an
+    // external URL, so it must be rejected before the same-origin branch.
+    if (value.startsWith("//")) return null;
     if (value.startsWith("/")) {
         // Same-origin relative path: reject anything that could escape the origin.
-        if (value.includes("://") || value.includes("\\")) return null;
+        if (value.includes("://") || value.includes("\\") || /[\u0000-\u001f]/.test(value)) return null;
         return value;
     }
     return safeHttpUrl(value);

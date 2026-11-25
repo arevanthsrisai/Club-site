@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import AboutClient from './AboutClient';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { AdminProfile } from '@/types';
-import { ClubRole, withBuiltIns } from '@/lib/roles';
+import { ClubRole, withBuiltIns, EX_CORE_ROLE } from '@/lib/roles';
 
 export const metadata: Metadata = {
     title: 'Team & About',
@@ -23,8 +23,9 @@ export default async function AboutPage() {
         const snap = await db.collection('admins').where('status', '==', 'active').get();
         team = snap.docs
             .map(d => d.data() as AdminProfile)
-            // exCoreAt marks accounts handed off to the Ex-Core page.
-            .filter(u => u.role !== 'pending' && !u.exCoreAt)
+            // exCoreAt marks hand-offs; the fixed Ex-Core role covers accounts
+            // that signed up as Ex-Core without ever joining the active team.
+            .filter(u => u.role !== 'pending' && u.role !== EX_CORE_ROLE.id && !u.exCoreAt)
             .map(({ uid, email, role, status, displayName, photoURL, socials }) =>
                 ({ uid, email, role, status, createdAt: null, displayName, photoURL, socials }));
     } catch (error) {

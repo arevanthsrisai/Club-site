@@ -23,8 +23,21 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role;
     }
 
+    // Approved team admins only. Ex-Core hand-off accounts hold the fixed
+    // "ExCoreMember" role (or, for legacy hand-offs, the exCoreAt marker) and
+    // must have zero admin authority: they may only read/write their own admin
+    // profile (isOwner) and use the server-side Ex-Core self-service routes.
+    // Never treat them as admins here.
+    function isExCoreAccount() {
+      return isAuthenticated() && adminExists()
+        && (getRole() == "ExCoreMember"
+            || ('exCoreAt' in get(/databases/$(database)/documents/admins/$(request.auth.uid)).data));
+    }
+
     function isAdmin() {
-      return isAuthenticated() && adminExists() && getRole() != "pending";
+      return isAuthenticated() && adminExists()
+        && getRole() != "pending"
+        && !isExCoreAccount();
     }
 
     function isCTO() {
@@ -77,10 +90,11 @@ service cloud.firestore {
     // --- Ex-Core members ---
     // Public profiles only (DOB/roll numbers stay inside admins/). Anyone may
     // read; only the CTO writes directly from the client. Owner self-edits
-    // (name/photo/bio/socials) and permission-bearing (non-CTO) manager
-    // writes go through the server API (/api/ex-core/*), which authenticates
-    // the caller's token, resolves ownership from the verified identity and
-    // whitelists fields — the Admin SDK path; rules never see it.
+    // (name/photo/bio/socials/category/role history) and permission-bearing
+    // (non-CTO) manager writes go through the server API (/api/ex-core/*),
+    // which authenticates the caller's token, resolves ownership from the
+    // verified identity and whitelists fields — the Admin SDK path; rules
+    // never see it.
     match /ex_core_members/{document} {
       allow read: if true;
       allow create, update, delete: if isCTO();
@@ -146,6 +160,16 @@ service cloud.firestore {
     match /alumni/{document} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // --- Admin Image Stash index ---
+    // The index maps stable asset ids to B2 keys and friendly URLs. Admins read
+    // it to pick images; every write goes through the server API
+    // (/api/admin/images/*) which enforces permissions, validates bytes and
+    // protects referenced assets. Clients never write the index directly.
+    match /image_assets/{assetId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     // Legacy image-metadata collections.

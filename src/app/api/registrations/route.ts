@@ -4,6 +4,8 @@ import { verifyAuthToken } from '@/lib/serverAuth';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { teamRegistrationSchema } from '@/lib/schemas';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { getAdminContext, hasPermission, logServerActivity } from '@/lib/serverAuthz';
+import { countActiveParticipants } from '@/lib/registrationCapacity';
 
 // Students cannot write registrations, invitations or feedback directly (see firestore.rules).
 // Every student-side change goes through this route, which checks it against the caller's verified uid.
@@ -57,14 +59,32 @@ async function findRegistration(eventId: string, uid: string): Promise<{ ref: Do
         .limit(1)
         .get();
     return member.empty ? null : { ref: member.docs[0].ref, data: member.docs[0].data() };
+}// Count participants who hold a real slot. Waitlisted registrations must not
+// consume capacity, otherwise a freed slot can never be offered to the list.
+async function capacityUsed(eventId: string): Promise<number> {
+    const snap = await db().collection('registrations').where('eventId', '==', eventId).get();
+    return countActiveParticipants(snap.docs.map(d => d.data()));
 }
 
-// Count total individual participants across all registrations for an event.
-async function countParticipants(eventId: string): Promise<number> {
-    const snap = await db().collection('registrations').where('eventId', '==', eventId).get();
-    let total = 0;
-    for (const d of snap.docs) {        total += (d.data()?.participantIds as string[] | undefined)?.length || 1;    }
-    return total;
+// Promote waitlisted registrations while real capacity remains. Returns how many
+// were promoted. Capacity is re-counted after each promotion so a multi-slot
+// removal (team) can free more than one place.
+async function promoteWaitlisted(eventId: string, event: DocumentData): Promise<number> {
+    if (!event.enableWaitlist || !event.maxParticipants) return 0;
+    const waitlisted = await getWaitlisted(eventId);
+    if (waitlisted.length === 0) return 0;
+
+    let remaining = event.maxParticipants - await capacityUsed(eventId);
+    let promoted = 0;
+    for (const entry of waitlisted) {
+        if (remaining <= 0) break;
+        const participantCount = (entry.data.participantIds as string[] | undefined)?.length || 1;
+        if (participantCount > remaining) continue;
+        await db().collection('registrations').doc(entry.id).update({ status: 'registered' });
+        remaining -= participantCount;
+        promoted += 1;
+    }
+    return promoted;
 }
 
 // Get all waitlisted registrations for an event, oldest first.
@@ -103,7 +123,7 @@ async function register(uid: string, body: Body) {
 
     // Max participants / waitlist enforcement
     if (event.maxParticipants) {
-        const participantCount = await countParticipants(eventId);
+        const participantCount = await capacityUsed(eventId);
         const remaining = event.maxParticipants - participantCount;
         const spotsNeeded = isTeamEvent ? (event.maxTeamSize || 1) : 1;
         if (remaining <= 0) {
@@ -374,7 +394,9 @@ async function deleteTeam(uid: string, body: Body) {
 }
 
 // Admin: remove any registration for an event, freeing a slot and promoting waitlisted.
-async function removeRegistration(actorUid: string, body: Body) {
+// Authorization lives in POST (events.manage); this helper is never reachable
+// from the student action table.
+async function removeRegistration(body: Body) {
     const eventId = text(body, 'eventId');
     const targetUid = text(body, 'targetUserId');
 
@@ -382,30 +404,26 @@ async function removeRegistration(actorUid: string, body: Body) {
     if (!reg) throw new ApiError('No registration found for this user.', 404);
 
     const event = await getEvent(eventId);
+    const isTeam = Boolean(reg.data.teamName);
 
-    // Delete associated invitations (target = removed user)
-    const invites = await db().collection('invitations').where('eventId', '==', eventId).where('targetUserId', '==', targetUid).get();
+    // Delete associated invitations. A team registration owns all invitations
+    // tied to it; an individual registration only its own target invitations.
+    const invites = isTeam
+        ? await db().collection('invitations').where('registrationId', '==', reg.ref.id).get()
+        : await db().collection('invitations').where('eventId', '==', eventId).where('targetUserId', '==', targetUid).get();
     const batch = db().batch();
     invites.docs.forEach(d => batch.delete(d.ref));
     batch.delete(reg.ref);
     await batch.commit();
 
-    // Promote first waitlisted participant if slots are available
-    if (event.enableWaitlist && event.maxParticipants) {
-        const remaining = event.maxParticipants - await countParticipants(eventId);
-        if (remaining > 0) {
-            const waitlisted = await getWaitlisted(eventId);
-            if (waitlisted.length > 0) {
-                const first = waitlisted[0];
-                await db().collection('registrations').doc(first.id).update({ status: 'registered' });
-            }
-        }
-    }
-
-    return { removed: targetUid };
+    const promoted = await promoteWaitlisted(eventId, event);
+    return { removed: targetUid, promoted };
 }
 
 // Student: unregister themselves from an event.
+// A team member leaves only their own place; only the leader (or an individual)
+// removes the registration document itself. Previously ANY team member's
+// "Unregister" deleted the whole team.
 async function unregister(uid: string, body: Body) {
     const eventId = text(body, 'eventId');
 
@@ -413,27 +431,43 @@ async function unregister(uid: string, body: Body) {
     if (!reg) throw new ApiError('You are not registered for this event.', 404);
 
     const event = await getEvent(eventId);
+    const isTeam = Boolean(reg.data.teamName);
+    const isLeader = reg.data.userId === uid;
 
-    // Delete associated invitations where this user is the target
-    const invites = await db().collection('invitations').where('eventId', '==', eventId).where('targetUserId', '==', uid).get();
+    if (isTeam && !isLeader) {
+        // Both invite types for this member: invitations addressed to them and
+        // join requests they sent for this team.
+        const invites = await db().collection('invitations').where('registrationId', '==', reg.ref.id).get();
+        const mine = invites.docs.filter(d => d.data().targetUserId === uid || d.data().senderId === uid);
+
+        await db().runTransaction(async (tx) => {
+            const snap = await tx.get(reg.ref);
+            if (!snap.exists) throw new ApiError('You are not registered for this event.', 404);
+            const data = snap.data()!;
+            const teamMembers = (data.teamMembers || []).filter((m: { userId?: string }) => m.userId !== uid);
+            tx.update(reg.ref, {
+                teamMembers,
+                participantIds: FieldValue.arrayRemove(uid),
+                status: teamMembers.length + 1 >= (event.minTeamSize || 1) ? 'registered' : 'forming',
+                [`attendance.${uid}`]: FieldValue.delete(),
+                [`feedbackMap.${uid}`]: FieldValue.delete(),
+            });
+            mine.forEach(d => tx.delete(d.ref));
+        });
+        return { unregistered: true, leftTeam: true };
+    }
+
+    // Individual or team leader: remove the registration document.
+    const invites = isTeam
+        ? await db().collection('invitations').where('registrationId', '==', reg.ref.id).get()
+        : await db().collection('invitations').where('eventId', '==', eventId).where('targetUserId', '==', uid).get();
     const batch = db().batch();
     invites.docs.forEach(d => batch.delete(d.ref));
     batch.delete(reg.ref);
     await batch.commit();
 
-    // Promote first waitlisted if slots opened
-    if (event.enableWaitlist && event.maxParticipants) {
-        const remaining = event.maxParticipants - await countParticipants(eventId);
-        if (remaining > 0) {
-            const waitlisted = await getWaitlisted(eventId);
-            if (waitlisted.length > 0) {
-                const first = waitlisted[0];
-                await db().collection('registrations').doc(first.id).update({ status: 'registered' });
-            }
-        }
-    }
-
-    return { unregistered: true };
+    await promoteWaitlisted(eventId, event);
+    return { unregistered: true, leftTeam: false };
 }
 
 async function checkin(uid: string, body: Body) {
@@ -503,6 +537,13 @@ async function feedback(uid: string, body: Body) {
     const eventRef = db().collection('events').doc(eventId);
     const feedbackRef = db().collection('feedbacks').doc();
     await db().runTransaction(async (tx) => {
+        // Re-check inside the transaction: two concurrent submissions both pass
+        // the pre-check above and would otherwise write two feedback docs.
+        const regSnap = await tx.get(reg.ref);
+        const regData = regSnap.data() || {};
+        if (regData.feedbackMap?.[uid] || (!regData.feedbackMap && regData.feedbackSubmitted)) {
+            throw new ApiError('You have already submitted feedback.');
+        }
         const current = (await tx.get(eventRef)).data() || {};
         const count = current.feedbackCount || 0;
 
@@ -527,7 +568,7 @@ async function feedback(uid: string, body: Body) {
 
 const ACTIONS: Record<string, (uid: string, body: Body) => Promise<unknown>> = {
     register, searchStudents, invite, respond, availableTeams, requestJoin, removeMember, deleteTeam, checkin, feedback,
-    removeRegistration, unregister,
+    unregister,
 };
 
 export async function POST(request: Request) {
@@ -536,7 +577,27 @@ export async function POST(request: Request) {
 
     try {
         const body = await request.json().catch(() => null);
-        const action = body && typeof body.action === 'string' && Object.hasOwn(ACTIONS, body.action) ? ACTIONS[body.action] : undefined;
+        const actionName = body && typeof body.action === 'string' ? body.action : '';
+
+        // Admin-only action: verified here (server-side) rather than sitting in
+        // the student action table. Any signed-in student could previously call
+        // it with another student's uid and delete their registration.
+        if (actionName === 'removeRegistration') {
+            const ctx = await getAdminContext(request);
+            if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            if (!hasPermission(ctx, 'events.manage')) {
+                return NextResponse.json({ error: 'Forbidden: requires the "events.manage" permission' }, { status: 403 });
+            }
+            const removed = await removeRegistration(body as Body);
+            await logServerActivity(ctx.uid, ctx.name, 'registration.admin_remove', {
+                eventId: (body as Body).eventId,
+                targetUserId: (body as Body).targetUserId,
+                promoted: (removed as { promoted?: number }).promoted ?? 0,
+            });
+            return NextResponse.json(removed);
+        }
+
+        const action = actionName && Object.hasOwn(ACTIONS, actionName) ? ACTIONS[actionName] : undefined;
         if (!action) throw new ApiError('Unknown action');
 
         // Rate limiting per action per user

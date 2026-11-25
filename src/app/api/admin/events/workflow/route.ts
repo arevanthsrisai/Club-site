@@ -17,6 +17,15 @@ import { Timestamp } from "firebase-admin/firestore";
  * Stop: Close the workflow (mark as stopped/ended).
  * Reset: Clear all data for the selected workflow/event scope.
  */
+const STATE_ERRORS = [
+    "Registration is not open. Nothing to stop.",
+    "Attendance is not active. Nothing to stop.",
+    "Feedback is not open. Nothing to stop.",
+    "Registration is already open. Restart is only available when stopped.",
+    "Attendance is already active. Stop it first before restarting.",
+    "Feedback is already open. Restart is only available when stopped.",
+];
+
 export async function POST(request: NextRequest) {
     try {
         const ctx = await getAdminContext(request);
@@ -212,6 +221,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ ok: true, message: `${workflow} workflow restarted successfully.` });
         }
     } catch (err: unknown) {
+        // State conflicts are user errors, not server failures. Surface the
+        // real message and a 409 instead of a generic 500 (which also hid the
+        // reason from the admin UI).
+        if (err instanceof Error && STATE_ERRORS.includes(err.message)) {
+            return NextResponse.json({ error: err.message }, { status: 409 });
+        }
         console.error("Workflow action error:", err);
         return NextResponse.json({ error: "Could not complete the workflow action. Please try again." }, { status: 500 });
     }

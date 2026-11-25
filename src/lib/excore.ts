@@ -145,7 +145,7 @@ export function sanitizeRoleHistory(
         b.startYear - a.startYear || b.endYear - a.endYear || a.role.localeCompare(b.role));
 }
 
-export const PRIVILEGED_MEMBER_FIELDS = ["exCoreBatch", "memberType", "roleHistory", "displayOrder", "linkedUserId", "movedAt"] as const;
+export const PRIVILEGED_MEMBER_FIELDS = ["exCoreBatch", "displayOrder", "linkedUserId", "movedAt"] as const;
 
 /**
  * Every academic year a member covers, newest first — used for the public
@@ -242,8 +242,13 @@ export function latestRoleLabel(m: ExCoreMember, memberType: ExCoreMemberType): 
     return normalized[0].role;
 }
 
-/** The only fields an Ex-Core owner may change about their own profile. */
-export const OWNER_EDITABLE_FIELDS = ["name", "photoURL", "bio", "socials"] as const;
+/**
+ * The fields an Ex-Core owner may change about their own profile. Category
+ * (Core/Activator) and role history are the member's own Ex-Core settings —
+ * they describe the person's tenure, so the person edits them. Ordering,
+ * account linking and legacy batch fields stay manager/server-controlled.
+ */
+export const OWNER_EDITABLE_FIELDS = ["name", "photoURL", "bio", "socials", "memberType", "roleHistory"] as const;
 
 /** True when body contains ONLY owner-editable keys (used by /self route). */
 export function hasOnlyOwnerFields(body: Record<string, unknown>): boolean {

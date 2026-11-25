@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyAuthToken } from '@/lib/serverAuth';
+import { getAdminContext, unauthorized, forbidden } from '@/lib/serverAuthz';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebaseAdmin';
 import { normalizeEmail } from '@/lib/normalizeEmail';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -25,17 +25,14 @@ async function checkRoleLimit(db: any, role: string): Promise<boolean> {
 
 export async function POST(request: Request) {
     try {
-        // 1. Verify caller is CTO
-        const authResult = await verifyAuthToken(request);
-        if (!authResult) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        // 1. Verify the caller is an active CTO. Resolved through the shared
+        // authorization layer so a stale/deactivated/Ex-Core `role: "CTO"`
+        // document cannot keep creating accounts.
+        const ctx = await getAdminContext(request);
+        if (!ctx) return unauthorized();
+        if (!ctx.isCTO) return forbidden('CTO');
 
         const adminDb = getAdminFirestore();
-        const callerDoc = await adminDb.collection('admins').doc(authResult.uid).get();
-        if (!callerDoc.exists || callerDoc.data()?.role !== 'CTO') {
-            return NextResponse.json({ error: 'Forbidden: CTO role required' }, { status: 403 });
-        }
 
         const body = await request.json().catch(() => ({}));
         const emailRaw = body?.email;
@@ -49,8 +46,8 @@ export async function POST(request: Request) {
         if (typeof password !== 'string' || password.length < 8) {
             return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 });
         }
-        if (!role || typeof role !== 'string') {
-            return NextResponse.json({ error: 'Role is required' }, { status: 400 });
+        if (!role || typeof role !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(role)) {
+            return NextResponse.json({ error: 'A valid role is required.' }, { status: 400 });
         }
 
         // 1b. Check role limit before proceeding
@@ -111,7 +108,7 @@ export async function POST(request: Request) {
             // audit log best-effort
             try {
                 await adminDb.collection('audit_logs').add({
-                    actorUid: authResult.uid,
+                    actorUid: ctx.uid,
                     action: 'CREATE_ADMIN_DIRECT_RECOVER',
                     targetUid: existingUser.uid,
                     email: normalized,
@@ -145,7 +142,7 @@ export async function POST(request: Request) {
             // audit log
             try {
                 await adminDb.collection('audit_logs').add({
-                    actorUid: authResult.uid,
+                    actorUid: ctx.uid,
                     action: 'CREATE_ADMIN_DIRECT',
                     targetUid: created.uid,
                     email: normalized,
@@ -164,11 +161,13 @@ export async function POST(request: Request) {
         }
     } catch (error: any) {
         console.error('create-admin error:', error);
-        const msg = error?.message || 'Internal server error';
-        // Avoid leaking sensitive firebase details
         if (error?.code === 'auth/email-already-in-use') {
             return NextResponse.json({ error: 'Email is already in use.' }, { status: 409 });
         }
-        return NextResponse.json({ error: msg }, { status: 500 });
+        if (typeof error?.message === 'string' && error.message.startsWith('Unknown role:')) {
+            return NextResponse.json({ error: 'That club role does not exist.' }, { status: 400 });
+        }
+        // Never return raw SDK messages to the client.
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 }

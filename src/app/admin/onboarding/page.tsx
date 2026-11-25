@@ -114,7 +114,7 @@ export default function OnboardingPage() {
         }
 
         if (!ROLLNO_REGEX.test(formData.rollNo)) {
-            toast.error("Roll number must be 3–20 alphanumeric characters.");
+            toast.error("Roll number must be in format AV.XX.U4XXXNNNNN (e.g., AV.SC.U4CSE26001).");
             return;
         }
 
@@ -142,8 +142,11 @@ export default function OnboardingPage() {
                 status: "active" // Graduate from onboarding
             });
 
-            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-            window.location.href = "/admin"; // Full reload to refresh auth state/guard
+            // Full reload to refresh auth state/guard. Ex-Core members land
+            // directly on their own Ex-Core settings — they hold zero admin
+            // authority, so the dashboard is not their home.
+            const finalRole = canChooseRole && formData.clubRole ? formData.clubRole : profile?.role;
+            window.location.href = finalRole === EX_CORE_ROLE.id ? "/admin/ex-core/settings" : "/admin";
         } catch (error) {
             console.error("Onboarding failed:", error);
             toast.error(error instanceof Error ? error.message : "Failed to save profile. Please try again.");
@@ -182,7 +185,7 @@ export default function OnboardingPage() {
                                 placeholder="AV.SC.U4CSE26001"
                                 className="w-full bg-black/40 border border-white/10 rounded-lg p-3"
                                 value={formData.rollNo}
-                                onChange={e => setFormData({ ...formData, rollNo: e.target.value })}
+                                onChange={e => setFormData({ ...formData, rollNo: e.target.value.toUpperCase() })}
                             />
                         </div>
                     </div>
@@ -229,7 +232,8 @@ export default function OnboardingPage() {
                                     {isPending && (
                                         <p className="text-xs text-gray-500 mt-1">
                                             Team (Activator) access still needs admin approval. Choosing Ex-Core finishes your
-                                            signup now; the CTO can later move your account to the active team.
+                                            signup now and takes you straight to your Ex-Core profile settings; the CTO can
+                                            later move your account to the active team.
                                         </p>
                                     )}
                                 </>
@@ -251,7 +255,7 @@ export default function OnboardingPage() {
                             onChange={e => setImageFile(e.target.files?.[0] || null)}
                             className="w-full bg-black/40 border border-white/10 rounded-lg p-3"
                         />
-                        <p className="text-xs text-gray-500 mt-1">Required for the Team Page.</p>
+                        <p className="text-xs text-gray-500 mt-1">Recommended — used on the Team Page.</p>
                     </div>
 
                     {/* Socials */}

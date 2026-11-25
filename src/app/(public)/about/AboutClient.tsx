@@ -44,7 +44,7 @@ export default function AboutClient({ team, roles }: AboutClientProps) {
                         Core Team
                     </h2>
                     <div className="max-w-7xl mx-auto px-4 mb-24">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 justify-items-center">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 justify-items-center items-stretch">
                             {coreTeam.map(u => (
                                 <TeamMemberCard
                                     key={u.uid}
@@ -72,7 +72,7 @@ export default function AboutClient({ team, roles }: AboutClientProps) {
                                     type="button"
                                     onClick={() => setSelectedMember(u)}
                                     aria-label={`View contact details for ${u.displayName || u.email}`}
-                                    className="bg-white/5 border border-white/10 rounded-lg p-4 text-center hover:bg-white/10 hover:border-blue-500/30 transition-all duration-300 hover:-translate-y-1 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:-translate-y-1 group cursor-pointer"
+                                    className="h-full flex flex-col justify-between bg-white/5 border border-white/10 rounded-lg p-4 text-center hover:bg-white/10 hover:border-blue-500/30 transition-all duration-300 hover:-translate-y-1 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:-translate-y-1 group cursor-pointer"
                                 >
                                     <h3 className="font-bold text-gray-200 text-sm group-hover:text-blue-400 transition-colors break-words">
                                         {u.displayName || "Activator"}
@@ -92,7 +92,7 @@ export default function AboutClient({ team, roles }: AboutClientProps) {
                 The Founders
             </h2>
             <div className="max-w-7xl mx-auto px-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 justify-items-center">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 justify-items-center items-stretch">
                     {[
                         { name: "Janke Yashwanth Reddy", img: "janke-yashwanth-reddy.jpg" },
                         { name: "Jerripothula Rakesh Naidu", img: "jerripothula-rakesh-naidu.jpg" },
@@ -101,7 +101,7 @@ export default function AboutClient({ team, roles }: AboutClientProps) {
                         { name: "Vadde Venkatasai", img: "vadde-venkatasai.jpg" },
                         { name: "Vivek Vignesh Baggam", img: "vivek-vignesh-baggam.jpg" }
                     ].map((founder, i) => (
-                        <div key={i} className="relative group w-full max-w-sm">
+                        <div key={i} className="relative group w-full max-w-sm h-full">
                             <div className="absolute -inset-0.5 bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-2xl opacity-50 group-hover:opacity-100 transition duration-300 blur-sm group-hover:blur-md" />
                             <div className="relative h-full bg-black/80 backdrop-blur-xl rounded-2xl p-6 border border-yellow-500/30 flex flex-col items-center text-center">
                                 <div className="w-24 h-24 rounded-full border-2 border-yellow-500/50 mb-4 overflow-hidden shadow-[0_0_15px_rgba(234,179,8,0.3)] relative">
@@ -168,7 +168,7 @@ function TeamMemberCard({
             type="button"
             onClick={onOpen}
             aria-label={`View contact details for ${member.name}`}
-            className="group relative w-full max-w-sm text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-2xl"
+            className="group relative w-full max-w-sm h-full text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-2xl"
         >
             <div
                 className={`absolute -inset-0.5 rounded-2xl opacity-40 group-hover:opacity-90 blur-md transition duration-300 ${
@@ -178,7 +178,7 @@ function TeamMemberCard({
                 }`}
                 aria-hidden="true"
             />
-            <div className="relative bg-black/80 backdrop-blur-xl rounded-2xl p-6 border border-blue-500/30 flex flex-col items-center transition-transform duration-300 group-hover:-translate-y-1 motion-reduce:group-hover:translate-y-0">
+            <div className="relative h-full bg-black/80 backdrop-blur-xl rounded-2xl p-6 border border-blue-500/30 flex flex-col items-center transition-transform duration-300 group-hover:-translate-y-1 motion-reduce:group-hover:translate-y-0">
                 <div className="relative w-24 h-24 mb-4">
                     <div className="w-full h-full rounded-full border-2 border-blue-500/50 overflow-hidden shadow-[0_0_15px_rgba(59,130,246,0.3)] bg-black relative">
                         {member.image ? (
@@ -195,7 +195,7 @@ function TeamMemberCard({
                 </div>
                 <h3 className="text-lg font-bold text-white mb-1 break-words group-hover:text-blue-300 transition-colors">{member.name}</h3>
                 <p className="text-xs text-blue-400/90 uppercase tracking-widest font-mono break-words mb-2">{member.role}</p>
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 group-hover:text-blue-400 transition-colors">
+                <span className="mt-auto pt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 group-hover:text-blue-400 transition-colors">
                     <User size={11} aria-hidden="true" /> Details <ChevronRight size={11} className="group-hover:translate-x-0.5 transition-transform" aria-hidden="true" />
                 </span>
             </div>

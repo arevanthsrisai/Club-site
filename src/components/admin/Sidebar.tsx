@@ -6,24 +6,31 @@ import { useRouter, usePathname } from "next/navigation";
 import { signOut, useAuth } from "@/lib/auth";
 import { subscribeToMessages } from "@/lib/api";
 import { unsolvedCount } from "@/lib/messageWorkflow";
+import { EX_CORE_ROLE } from "@/lib/roles";
 import { useEffect, useState } from "react";
 import {
     LogOut, LayoutDashboard, Calendar, ClipboardList, Users,
-    BookOpen, Image as ImageIcon, Shield, Home, Skull, Terminal, MessageSquare,
-    GraduationCap, Settings, Activity, History
+    BookOpen, Image as ImageIcon, Images, Shield, Home, Skull, Terminal, MessageSquare,
+    GraduationCap, Settings, Activity, History, UserRound
 } from "lucide-react";
 
 export default function Sidebar() {
     const router = useRouter();
     const { user, profile } = useAuth();
     const [unresolvedCount, setUnresolvedCount] = useState(0);
+    // Ex-Core hand-off accounts have zero admin control: they only get their
+    // own profile and their Ex-Core settings in the sidebar.
+    const isExCore = profile?.role === EX_CORE_ROLE.id || Boolean(profile?.exCoreAt);
 
     useEffect(() => {
+        // Messages are admin-only (Firestore rules deny Ex-Core reads), so the
+        // badge subscription must not run for Ex-Core accounts.
+        if (!profile || isExCore) return;
         const unsubscribe = subscribeToMessages((msgs) => {
             setUnresolvedCount(unsolvedCount(msgs));
         });
         return () => unsubscribe();
-    }, []);
+    }, [profile, isExCore]);
 
     const handleLogout = async () => {
         await signOut();
@@ -32,45 +39,56 @@ export default function Sidebar() {
 
     return (
         <aside className="w-64 bg-black/50 border-r border-white/10 p-6 flex flex-col hidden md:flex h-full">
-            <h2 className="text-2xl font-bold text-blue-500 mb-8">ReLU Admin</h2>
+            <h2 className="text-2xl font-bold text-blue-500 mb-8">
+                {isExCore ? "ReLU Member" : "ReLU Admin"}
+            </h2>
 
             <nav className="flex-1 space-y-2 overflow-y-auto">
-                <NavLink href="/admin" icon={<LayoutDashboard size={20} />} label="Dashboard" />
-                <NavLink href="/admin/events" icon={<Calendar size={20} />} label="Events" />
-                <NavLink href="/admin/team" icon={<Users size={20} />} label="Team Members" />
-                <NavLink href="/admin/forms" icon={<ClipboardList size={20} />} label="Forms" />
-                <div className="h-px bg-white/10 my-2" />
-                <NavLink href="/admin/resources" icon={<BookOpen size={20} />} label="Resources" />
-                <NavLink href="/admin/gallery" icon={<ImageIcon size={20} />} label="Gallery" />
-                <NavLink href="/admin/messages" icon={<MessageSquare size={20} />} label="Messages" badge={unresolvedCount > 0 ? unresolvedCount : undefined} />
-                <NavLink href="/admin/alumni" icon={<GraduationCap size={20} />} label="Alumni" />
-                <NavLink href="/admin/logs" icon={<Activity size={20} />} label="Activity Log" />
-
-                {/* Ex-Core manager - CTO only (feature permission: excore.manage) */}
-                {profile?.role === "CTO" && (
+                {isExCore ? (
+                    /* Ex-Core accounts: own profile + own Ex-Core settings only. */
                     <>
+                        <NavLink href="/admin/ex-core/settings" icon={<History size={20} />} label="Ex-Core Settings" />
+                        <NavLink href="/admin/profile" icon={<UserRound size={20} />} label="My Profile" />
+                    </>
+                ) : (
+                    <>
+                        <NavLink href="/admin" icon={<LayoutDashboard size={20} />} label="Dashboard" />
+                        <NavLink href="/admin/events" icon={<Calendar size={20} />} label="Events" />
+                        <NavLink href="/admin/team" icon={<Users size={20} />} label="Team Members" />
+                        <NavLink href="/admin/forms" icon={<ClipboardList size={20} />} label="Forms" />
                         <div className="h-px bg-white/10 my-2" />
-                        <NavLink href="/admin/ex-core" icon={<History size={20} />} label="Ex-Core" />
+                        <NavLink href="/admin/resources" icon={<BookOpen size={20} />} label="Resources" />
+                        <NavLink href="/admin/gallery" icon={<ImageIcon size={20} />} label="Gallery" />
+                        <NavLink href="/admin/image-stash" icon={<Images size={20} />} label="Image Stash" />
+                        <NavLink href="/admin/messages" icon={<MessageSquare size={20} />} label="Messages" badge={unresolvedCount > 0 ? unresolvedCount : undefined} />
+                        <NavLink href="/admin/alumni" icon={<GraduationCap size={20} />} label="Alumni" />
+                        <NavLink href="/admin/logs" icon={<Activity size={20} />} label="Activity Log" />
+
+                        {/* Ex-Core manager - CTO only (feature permission: excore.manage) */}
+                        {profile?.role === "CTO" && (
+                            <>
+                                <div className="h-px bg-white/10 my-2" />
+                                <NavLink href="/admin/ex-core" icon={<History size={20} />} label="Ex-Core" />
+                            </>
+                        )}
+
+                        {/* Manage Admins - CTO Only */}
+                        {profile?.role === "CTO" && (
+                            <>
+                                <div className="h-px bg-white/10 my-2" />
+                                <NavLink href="/admin/admins" icon={<Shield size={20} />} label="Manage Admins" />
+                            </>
+                        )}
+
+                        {/* Doomsday Link - CTO Only */}
+                        {profile?.role === "CTO" && (
+                            <>
+                                <div className="h-px bg-red-500/30 my-2" />
+                                <NavLink href="/admin/doomsday" icon={<Skull size={20} className="text-red-500" />} label="Doomsday" className="text-red-400 hover:bg-red-500/10 hover:text-red-500" />
+                            </>
+                        )}
                     </>
                 )}
-
-                {/* Manage Admins - CTO Only */}
-                {profile?.role === "CTO" && (
-                    <>
-                        <div className="h-px bg-white/10 my-2" />
-                        <NavLink href="/admin/admins" icon={<Shield size={20} />} label="Manage Admins" />
-                    </>
-                )}
-
-                {/* Doomsday Link - CTO Only */}
-                {profile?.role === "CTO" && (
-                    <>
-                        <div className="h-px bg-red-500/30 my-2" />
-                        <NavLink href="/admin/doomsday" icon={<Skull size={20} className="text-red-500" />} label="Doomsday" className="text-red-400 hover:bg-red-500/10 hover:text-red-500" />
-                    </>
-                )}
-
-
             </nav>
 
             <div className="pt-6 border-t border-white/10 space-y-4 mt-auto">

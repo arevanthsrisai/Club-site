@@ -251,6 +251,34 @@ function isValidISODate(s: string): boolean {
 
 export type AvailabilityReason = "draft" | "closed-status" | "not-yet-open" | "deadline-passed" | "open";
 
+/**
+ * Coerce a stored date to a Date. Firestore Admin SDK returns Timestamp objects,
+ * and `new Date(timestampObject)` is Invalid Date — which made a scheduled
+ * form's window silently pass every comparison (i.e. always open).
+ */
+export function toDateOrNull(value: unknown): Date | null {
+    if (value === null || value === undefined || value === "") return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    if (typeof value === "object") {
+        const maybe = value as { toDate?: unknown; seconds?: unknown; _seconds?: unknown };
+        if (typeof maybe.toDate === "function") {
+            const d = (maybe.toDate as () => Date)();
+            return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+        }
+        const seconds = typeof maybe.seconds === "number" ? maybe.seconds : maybe._seconds;
+        if (typeof seconds === "number") {
+            const d = new Date(seconds * 1000);
+            return Number.isNaN(d.getTime()) ? null : d;
+        }
+        return null;
+    }
+    if (typeof value === "string" || typeof value === "number") {
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+}
+
 export function computeAvailability(form: Pick<Form, "status" | "opensAt" | "closesAt">, now: Date = new Date()): AvailabilityReason {
     if (form.status === "draft") return "draft";
     if (form.status === "closed") return "closed-status";
